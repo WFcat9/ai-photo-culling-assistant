@@ -1,298 +1,404 @@
-import type { ReactNode } from 'react';
+import {
+  Camera,
+  CheckCircle2,
+  Download,
+  FileText,
+  Image,
+  Info,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  Upload,
+  Wrench,
+  XCircle,
+} from 'lucide-react';
+import { ChangeEvent, DragEvent, useMemo, useRef, useState } from 'react';
+import { analyzeImageFile } from './lib/photoMetrics';
+import { PhotoAssessment, PhotoDecision, RawPhotoMetrics, scorePhoto, summarizeAssessments } from './lib/photoScoring';
 
-type GalleryPhoto = {
-  title: string;
-  category: string;
-  image: string;
-  note: string;
+type PhotoStatus = 'queued' | 'analyzing' | 'done' | 'error';
+
+type PhotoItem = {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  previewUrl: string;
+  status: PhotoStatus;
+  metrics?: RawPhotoMetrics;
+  assessment?: PhotoAssessment;
+  errorMessage?: string;
 };
 
-type CaseStudy = {
-  title: string;
-  label: string;
-  image: string;
-  summary: string;
-  planning: string;
-  shooting: string;
-  editing: string;
+type FilterValue = 'all' | PhotoDecision;
+
+const decisionMeta: Record<PhotoDecision, { label: string; tone: string; icon: typeof CheckCircle2 }> = {
+  keep: { label: '保留', tone: 'keep', icon: CheckCircle2 },
+  review: { label: '待修', tone: 'review', icon: Wrench },
+  reject: { label: '淘汰', tone: 'reject', icon: XCircle },
 };
 
-const assetPath = '/portfolio/';
-
-const operationProofs = [
-  { value: '300+', label: '校园活动参与' },
-  { value: '50+', label: 'UGC 内容产出' },
-  { value: '10w+', label: '爆款内容播放' },
-  { value: '1.8x', label: '账号互动率表现' },
+const filters: { value: FilterValue; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'keep', label: '保留' },
+  { value: 'review', label: '待修' },
+  { value: 'reject', label: '淘汰' },
 ];
 
-const operationHighlights = [
-  '策划 vivo 影像科技校园行等 3 场活动，联动摄影协会完成校园传播。',
-  '运营 3 个垂直社群，发起影像创作大赛并沉淀 50+ 条 UGC 内容。',
-  '从 0 到 1 搭建摄影工作室抖音/小红书账号，结合热点和场景内容带动转化。',
-];
+function formatFileSize(fileSize: number) {
+  if (fileSize < 1024 * 1024) return `${Math.round(fileSize / 1024)} KB`;
+  return `${(fileSize / 1024 / 1024).toFixed(1)} MB`;
+}
 
-const caseStudies: CaseStudy[] = [
-  {
-    title: '暗影中的沉思者',
-    label: '摄影案例 01',
-    image: `${assetPath}dark-lightburst.jpeg`,
-    summary: '低照度环境下控制人物情绪和硬光边界，用极暗背景把注意力集中到姿态、手部和光束。',
-    planning: '先确定“压低环境、保留一道主光”的视觉设定，让人物像被舞台灯从黑暗里切出来。',
-    shooting: '控制曝光不过度提亮暗部，保留高光边缘，同时让背景信息只服务于情绪。',
-    editing: '后期保留暗部层次，降低杂色干扰，强化暖光与黑场之间的戏剧张力。',
-  },
-  {
-    title: '秋日映画',
-    label: '摄影案例 02',
-    image: `${assetPath}autumn-triptych.jpeg`,
-    summary: '把同一组人物状态拆成连续电影帧，用秋日斜射光、背景层次和动作变化组织叙事。',
-    planning: '以“时间颗粒”为主题，提前规划人物站位、前景遮挡和连拍节奏。',
-    shooting: '用中远景建立环境，再用人物视线和动作带出故事感，避免只拍单张好看照片。',
-    editing: '色彩偏向温暖胶片感，保留柔和反差，让一组照片能作为完整小系列成立。',
-  },
-];
+function createPhotoId(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`;
+}
 
-const galleryPhotos: GalleryPhoto[] = [
-  {
-    title: '花束与旧时光',
-    category: '光影人像',
-    image: `${assetPath}bouquet-profile.jpeg`,
-    note: '柔焦与侧逆光处理人物情绪。',
-  },
-  {
-    title: '骷髅与少女',
-    category: '叙事场景',
-    image: `${assetPath}bridal-scene.jpeg`,
-    note: '道具、场景和人物共同制造故事。',
-  },
-  {
-    title: '白伞人像',
-    category: '光影人像',
-    image: `${assetPath}white-umbrella-portrait.jpeg`,
-    note: '古典姿态和自然背景的融合。',
-  },
-  {
-    title: '日常光线',
-    category: '日常写真',
-    image: `${assetPath}daily-room-wide.jpeg`,
-    note: '室内暖光塑造生活片段。',
-  },
-];
+function buildReportRows(photos: PhotoItem[]) {
+  return photos
+    .filter((photo) => photo.assessment && photo.metrics)
+    .map((photo) => ({
+      fileName: photo.fileName,
+      decision: decisionMeta[photo.assessment!.status].label,
+      score: photo.assessment!.score,
+      width: photo.metrics!.width,
+      height: photo.metrics!.height,
+      sharpness: photo.metrics!.sharpness,
+      brightness: photo.metrics!.brightness,
+      contrast: photo.metrics!.contrast,
+      tiltDegrees: photo.metrics!.tiltDegrees,
+      suggestions: photo.assessment!.suggestions.join('；'),
+    }));
+}
 
-function ArrowIcon() {
+function downloadReport(photos: PhotoItem[]) {
+  const rows = buildReportRows(photos);
+  const header = ['文件名', '判断', '分数', '宽', '高', '清晰度', '亮度', '对比度', '倾斜角', '建议'];
+  const csvRows = [
+    header,
+    ...rows.map((row) => [
+      row.fileName,
+      row.decision,
+      String(row.score),
+      String(row.width),
+      String(row.height),
+      String(row.sharpness),
+      String(row.brightness),
+      String(row.contrast),
+      String(row.tiltDegrees),
+      row.suggestions,
+    ]),
+  ];
+  const csvContent = csvRows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(',')).join('\n');
+  const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+
+  link.href = URL.createObjectURL(blob);
+  link.download = 'photo-screening-report.csv';
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function MetricPill({ label, value }: { label: string; value: string | number }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4">
-      <path
-        d="M7 17 17 7M9 7h8v8"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
+    <div className="metric-pill">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
-function SectionIntro({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
+function DecisionBadge({ decision }: { decision: PhotoDecision }) {
+  const meta = decisionMeta[decision];
+  const Icon = meta.icon;
+
   return (
-    <div className="section-intro">
-      <p className="section-kicker">{eyebrow}</p>
-      <h2>{title}</h2>
-      <div className="section-copy">{children}</div>
+    <span className={`decision-badge decision-${meta.tone}`}>
+      <Icon aria-hidden="true" size={15} />
+      {meta.label}
+    </span>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="empty-state">
+      <Image aria-hidden="true" size={40} />
+      <h2>先拖入一批照片</h2>
+      <p>第一版会在本地分析清晰度、曝光、对比度、画面倾斜和尺寸，帮你先筛出明显问题图。</p>
     </div>
   );
 }
 
 function App() {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [activeFilter, setActiveFilter] = useState<FilterValue>('all');
+  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const completedAssessments = photos
+    .map((photo) => photo.assessment)
+    .filter((assessment): assessment is PhotoAssessment => Boolean(assessment));
+
+  const summary = summarizeAssessments(completedAssessments);
+  const selectedPhoto = photos.find((photo) => photo.id === selectedPhotoId) ?? photos[0];
+  const visiblePhotos = useMemo(() => {
+    if (activeFilter === 'all') return photos;
+    return photos.filter((photo) => photo.assessment?.status === activeFilter);
+  }, [activeFilter, photos]);
+
+  async function analyzeOnePhoto(photo: PhotoItem, file: File) {
+    setPhotos((currentPhotos) =>
+      currentPhotos.map((currentPhoto) =>
+        currentPhoto.id === photo.id ? { ...currentPhoto, status: 'analyzing' } : currentPhoto,
+      ),
+    );
+
+    try {
+      const metrics = await analyzeImageFile(file);
+      const assessment = scorePhoto(metrics);
+
+      setPhotos((currentPhotos) =>
+        currentPhotos.map((currentPhoto) =>
+          currentPhoto.id === photo.id ? { ...currentPhoto, status: 'done', metrics, assessment } : currentPhoto,
+        ),
+      );
+    } catch (error) {
+      setPhotos((currentPhotos) =>
+        currentPhotos.map((currentPhoto) =>
+          currentPhoto.id === photo.id
+            ? {
+                ...currentPhoto,
+                status: 'error',
+                errorMessage: error instanceof Error ? error.message : '图片读取失败。',
+              }
+            : currentPhoto,
+        ),
+      );
+    }
+  }
+
+  function handleFiles(fileList: FileList | File[]) {
+    const imageFiles = Array.from(fileList).filter((file) => file.type.startsWith('image/'));
+    const nextPhotos = imageFiles.map((file) => ({
+      id: createPhotoId(file),
+      fileName: file.name,
+      fileSize: file.size,
+      previewUrl: URL.createObjectURL(file),
+      status: 'queued' as const,
+    }));
+
+    if (nextPhotos.length === 0) return;
+
+    setPhotos((currentPhotos) => [...nextPhotos, ...currentPhotos]);
+    setSelectedPhotoId(nextPhotos[0].id);
+    nextPhotos.forEach((photo, index) => {
+      void analyzeOnePhoto(photo, imageFiles[index]);
+    });
+  }
+
+  function handleInputChange(event: ChangeEvent<HTMLInputElement>) {
+    if (!event.target.files) return;
+    handleFiles(event.target.files);
+    event.target.value = '';
+  }
+
+  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDragging(false);
+    handleFiles(event.dataTransfer.files);
+  }
+
+  function clearPhotos() {
+    photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+    setPhotos([]);
+    setSelectedPhotoId(null);
+    setActiveFilter('all');
+  }
+
   return (
-    <div className="site-shell">
-      <header className="site-header" aria-label="主导航">
-        <a className="brand" href="#top" aria-label="返回首页">
-          <span className="brand-mark">J</span>
-          <span>贾志超｜摄影与运营</span>
-        </a>
-        <nav className="nav-links">
-          <a href="#operation">运营能力</a>
-          <a href="#cases">摄影案例</a>
-          <a href="#planning">拍摄策划</a>
-          <a href="#contact">联系</a>
-        </nav>
-      </header>
+    <main className="app-shell">
+      <section className="workspace-header">
+        <div className="brand-lockup">
+          <span className="brand-mark">
+            <Camera aria-hidden="true" size={19} />
+          </span>
+          <span>AI 摄影筛片助手</span>
+        </div>
 
-      <main id="top">
-        <section className="hero-section" aria-labelledby="hero-title">
-          <div className="hero-copy">
-            <p className="hero-meta">Personal Brand / Photography / New Media</p>
-            <h1 id="hero-title">摄影审美与新媒体运营并行的个人展示。</h1>
-            <p className="hero-lead">
-              少量照片展示拍摄审美和策划能力，运营经历前置展示，重点说明我既能拍出内容，也能把内容组织、传播并转化。
-            </p>
-            <div className="hero-actions">
-              <a className="primary-link" href="#operation">
-                先看运营能力
-                <ArrowIcon />
-              </a>
-              <a className="secondary-link" href="#cases">查看摄影案例</a>
-            </div>
-          </div>
+        <div className="header-actions">
+          <button className="ghost-button" type="button" onClick={() => fileInputRef.current?.click()}>
+            <Upload aria-hidden="true" size={17} />
+            选择照片
+          </button>
+          <button className="ghost-button" type="button" onClick={() => downloadReport(photos)} disabled={summary.totalCount === 0}>
+            <Download aria-hidden="true" size={17} />
+            导出报告
+          </button>
+          <button className="icon-button" type="button" onClick={clearPhotos} disabled={photos.length === 0} aria-label="清空照片">
+            <Trash2 aria-hidden="true" size={18} />
+          </button>
+        </div>
+      </section>
 
-          <div className="hero-showcase" aria-label="个人能力首屏展示">
-            <img src={`${assetPath}dark-lightburst.jpeg`} alt="暗调光影摄影代表作品" />
-            <div className="hero-proof-card">
-              <p>新媒体运营成果</p>
-              <div>
-                {operationProofs.map((proof) => (
-                  <span key={proof.label}>
-                    <strong>{proof.value}</strong>
-                    {proof.label}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="page-section operation-section" id="operation">
-          <div className="operation-copy">
-            <p className="section-kicker">New Media Operation</p>
-            <h2>新媒体运营前置展示：我不只会拍，也会让内容被看见。</h2>
-            <p>
-              运营能力放在第二屏，作为个人品牌的核心证明之一：活动策划、社群运营、短视频/图文内容和账号增长都来自简历中的真实经历。
-            </p>
-          </div>
-          <div className="proof-grid">
-            {operationProofs.map((proof) => (
-              <div className="proof-item" key={proof.label}>
-                <strong>{proof.value}</strong>
-                <span>{proof.label}</span>
-              </div>
-            ))}
-          </div>
-          <div className="operation-notes">
-            {operationHighlights.map((highlight) => (
-              <p key={highlight}>{highlight}</p>
-            ))}
-          </div>
-        </section>
-
-        <section className="page-section" id="cases">
-          <SectionIntro eyebrow="Selected Case Studies" title="摄影案例：保留少量，但讲清楚策划思路">
-            <p>
-              照片不铺太多，只保留两个能代表能力的案例。重点不是数量，而是讲清楚主题、场景、光线和后期。
-            </p>
-          </SectionIntro>
-
-          <div className="case-list">
-            {caseStudies.map((caseStudy, index) => (
-              <article className="case-panel" key={caseStudy.title}>
-                <div className="case-image-wrap">
-                  <img src={caseStudy.image} alt={caseStudy.title} />
-                </div>
-                <div className="case-content">
-                  <p className="case-label">{caseStudy.label}</p>
-                  <h3>{caseStudy.title}</h3>
-                  <p className="case-summary">{caseStudy.summary}</p>
-
-                  <div className="case-breakdown" aria-label={`${caseStudy.title}策划拆解`}>
-                    <div>
-                      <span>策划</span>
-                      <p>{caseStudy.planning}</p>
-                    </div>
-                    <div>
-                      <span>拍摄</span>
-                      <p>{caseStudy.shooting}</p>
-                    </div>
-                    <div>
-                      <span>后期</span>
-                      <p>{caseStudy.editing}</p>
-                    </div>
-                  </div>
-                </div>
-                <span className="case-number">{String(index + 1).padStart(2, '0')}</span>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="page-section gallery-section" id="gallery">
-          <SectionIntro eyebrow="Photo Selection" title="照片精选：只保留几张代表图">
-            <p>这里从摄影集中压缩出 4 张代表图，作为审美补充，不再做大面积照片墙。</p>
-          </SectionIntro>
-
-          <div className="gallery-grid">
-            {galleryPhotos.map((photo) => (
-              <article className="gallery-card" key={photo.title}>
-                <img src={photo.image} alt={photo.title} />
-                <div>
-                  <span>{photo.category}</span>
-                  <h3>{photo.title}</h3>
-                  <p>{photo.note}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="page-section planning-section" id="planning">
-          <SectionIntro eyebrow="Planning Method" title="拍摄策划能力：从想法到成片的四步">
-            <p>
-              摄影能力不只在按下快门那一刻。真正能交付稳定结果的是：先定主题，再搭场域，拍摄时控制变量，最后用后期统一表达。
-            </p>
-          </SectionIntro>
-
-          <div className="planning-layout">
-            <img src={`${assetPath}black-white-portrait.jpeg`} alt="黑白人像作品" />
-            <ol className="planning-steps">
-              <li>
-                <span>01</span>
-                <div>
-                  <h3>主题设定</h3>
-                  <p>用“暗影、秋日、节日、校园、城市”等关键词先确定情绪方向，让模特、道具和场景围绕同一个概念服务。</p>
-                </div>
-              </li>
-              <li>
-                <span>02</span>
-                <div>
-                  <h3>场景组织</h3>
-                  <p>选择有叙事能力的环境，并提前判断前景、背景、人物比例和道具位置，减少现场拍摄的随机性。</p>
-                </div>
-              </li>
-              <li>
-                <span>03</span>
-                <div>
-                  <h3>光线控制</h3>
-                  <p>根据暗调、逆光、暖光、多光源等不同场景，控制曝光、色温和人物轮廓，让光线成为叙事的一部分。</p>
-                </div>
-              </li>
-              <li>
-                <span>04</span>
-                <div>
-                  <h3>后期统一</h3>
-                  <p>通过 Lightroom、Photoshop 和达芬奇等工具统一色彩、颗粒、反差与肤色，让作品以系列而不是散图呈现。</p>
-                </div>
-              </li>
-            </ol>
-          </div>
-        </section>
-
-        <section className="contact-section" id="contact" aria-labelledby="contact-title">
+      <section className="hero-workspace">
+        <div className="upload-column">
           <div>
-            <p className="section-kicker">Contact</p>
-            <h2 id="contact-title">适合摄影约拍、活动影像记录和新媒体内容共创。</h2>
-            <p>邮箱：2367707584@qq.com　电话：18730380081</p>
+            <h1>批量筛出问题照片，先把选片效率提起来。</h1>
+            <p>
+              这一版完全在浏览器本地运行，不上传原图。它先做基础质量筛查：模糊、过暗、过曝、低反差、画面倾斜和尺寸偏小。
+            </p>
           </div>
-          <div className="contact-actions">
-            <a className="primary-link" href="mailto:2367707584@qq.com">
-              邮件联系
-              <ArrowIcon />
-            </a>
-            <a className="secondary-link contact-phone" href="tel:18730380081">电话联系</a>
+
+          <label
+            className={`drop-zone ${isDragging ? 'is-dragging' : ''}`}
+            onDragEnter={() => setIsDragging(true)}
+            onDragLeave={() => setIsDragging(false)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={handleDrop}
+          >
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleInputChange} />
+            <Upload aria-hidden="true" size={34} />
+            <strong>拖入照片，或点击选择</strong>
+            <span>支持 JPG、PNG、WebP 等常见图片格式</span>
+          </label>
+
+          <div className="notice-row">
+            <Info aria-hidden="true" size={16} />
+            第一阶段是“初筛助手”，不会替代你的审美判断；它负责把明显坏片先挑出来。
           </div>
-        </section>
-      </main>
-    </div>
+        </div>
+
+        <div className="summary-panel" aria-label="筛片统计">
+          <MetricPill label="已分析" value={summary.totalCount} />
+          <MetricPill label="建议保留" value={summary.keepCount} />
+          <MetricPill label="进入待修" value={summary.reviewCount} />
+          <MetricPill label="建议淘汰" value={summary.rejectCount} />
+          <div className="score-meter">
+            <span>平均质量分</span>
+            <strong>{summary.averageScore}</strong>
+            <div>
+              <i style={{ width: `${summary.averageScore}%` }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="results-layout">
+        <div className="photo-list-region">
+          <div className="toolbar">
+            <div className="filter-tabs" role="tablist" aria-label="筛选照片">
+              {filters.map((filter) => (
+                <button
+                  key={filter.value}
+                  type="button"
+                  className={activeFilter === filter.value ? 'is-active' : ''}
+                  onClick={() => setActiveFilter(filter.value)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+
+            <button className="subtle-button" type="button" onClick={() => setActiveFilter('all')}>
+              <RefreshCw aria-hidden="true" size={15} />
+              重看全部
+            </button>
+          </div>
+
+          {visiblePhotos.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <div className="photo-grid">
+              {visiblePhotos.map((photo) => (
+                <button
+                  className={`photo-card ${selectedPhoto?.id === photo.id ? 'is-selected' : ''}`}
+                  type="button"
+                  key={photo.id}
+                  onClick={() => setSelectedPhotoId(photo.id)}
+                >
+                  <span className="thumb-wrap">
+                    <img src={photo.previewUrl} alt={photo.fileName} />
+                    {photo.status === 'analyzing' ? (
+                      <span className="analysis-state">
+                        <Loader2 aria-hidden="true" size={16} />
+                        分析中
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="photo-card-body">
+                    <span className="file-name">{photo.fileName}</span>
+                    <span className="file-meta">{formatFileSize(photo.fileSize)}</span>
+                    {photo.assessment ? <DecisionBadge decision={photo.assessment.status} /> : null}
+                    {photo.status === 'error' ? <span className="error-text">{photo.errorMessage}</span> : null}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <aside className="detail-panel" aria-label="照片分析详情">
+          {selectedPhoto ? (
+            <>
+              <div className="detail-media">
+                <img src={selectedPhoto.previewUrl} alt={selectedPhoto.fileName} />
+              </div>
+
+              <div className="detail-content">
+                <div className="detail-heading">
+                  <div>
+                    <span>当前照片</span>
+                    <h2>{selectedPhoto.fileName}</h2>
+                  </div>
+                  {selectedPhoto.assessment ? <DecisionBadge decision={selectedPhoto.assessment.status} /> : null}
+                </div>
+
+                {selectedPhoto.assessment && selectedPhoto.metrics ? (
+                  <>
+                    <div className="quality-score">
+                      <span>质量分</span>
+                      <strong>{selectedPhoto.assessment.score}</strong>
+                    </div>
+
+                    <div className="metric-grid">
+                      <MetricPill label="尺寸" value={`${selectedPhoto.metrics.width} × ${selectedPhoto.metrics.height}`} />
+                      <MetricPill label="清晰度" value={selectedPhoto.metrics.sharpness} />
+                      <MetricPill label="亮度" value={selectedPhoto.metrics.brightness} />
+                      <MetricPill label="对比度" value={selectedPhoto.metrics.contrast} />
+                      <MetricPill label="过暗比例" value={`${Math.round(selectedPhoto.metrics.darkPixelRatio * 100)}%`} />
+                      <MetricPill label="过曝比例" value={`${Math.round(selectedPhoto.metrics.brightPixelRatio * 100)}%`} />
+                    </div>
+
+                    <div className="suggestion-block">
+                      <div className="block-title">
+                        <FileText aria-hidden="true" size={17} />
+                        筛片建议
+                      </div>
+                      <ul>
+                        {selectedPhoto.assessment.suggestions.map((suggestion) => (
+                          <li key={suggestion}>{suggestion}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </>
+                ) : (
+                  <div className="pending-detail">
+                    <Loader2 aria-hidden="true" size={20} />
+                    正在读取图片质量数据
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="detail-empty">
+              <Image aria-hidden="true" size={42} />
+              <p>选择一张照片后，这里会显示详细指标和修改建议。</p>
+            </div>
+          )}
+        </aside>
+      </section>
+    </main>
   );
 }
 
