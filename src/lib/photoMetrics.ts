@@ -1,4 +1,4 @@
-import type { RawPhotoMetrics } from './photoScoring';
+import type { EyeStatus, RawPhotoMetrics } from './photoScoring';
 
 export type PixelMetricInput = {
   width: number;
@@ -8,7 +8,15 @@ export type PixelMetricInput = {
 
 export type PixelMetrics = Pick<
   RawPhotoMetrics,
-  'brightness' | 'darkPixelRatio' | 'brightPixelRatio' | 'contrast' | 'sharpness' | 'tiltDegrees'
+  | 'brightness'
+  | 'darkPixelRatio'
+  | 'brightPixelRatio'
+  | 'contrast'
+  | 'tiltDegrees'
+  | 'visualWeightX'
+  | 'visualWeightY'
+  | 'centerBrightness'
+  | 'edgeBrightness'
 >;
 
 const DARK_PIXEL_LIMIT = 35;
@@ -24,29 +32,64 @@ function getLuminance(rgbaData: Uint8ClampedArray, pixelIndex: number) {
   return 0.299 * red + 0.587 * green + 0.114 * blue;
 }
 
-function calculateSharpness(grayscale: number[], width: number, height: number) {
-  if (width < 3 || height < 3) return 0;
+function getVisualWeight(grayscale: number[], width: number, height: number) {
+  let weightedXTotal = 0;
+  let weightedYTotal = 0;
+  let totalWeight = 0;
 
-  let laplacianTotal = 0;
-  let sampleCount = 0;
+  for (let yPosition = 0; yPosition < height; yPosition += 1) {
+    for (let xPosition = 0; xPosition < width; xPosition += 1) {
+      const index = yPosition * width + xPosition;
+      const luminance = grayscale[index] ?? 0;
+      const left = grayscale[index - 1] ?? luminance;
+      const right = grayscale[index + 1] ?? luminance;
+      const top = grayscale[index - width] ?? luminance;
+      const bottom = grayscale[index + width] ?? luminance;
+      const localEdge = Math.abs(right - left) + Math.abs(bottom - top);
+      const weight = Math.max(1, luminance - 24) + localEdge * 0.8;
 
-  // 用拉普拉斯变化估算清晰度：边缘变化越强，数值通常越高。
-  for (let yPosition = 1; yPosition < height - 1; yPosition += 1) {
-    for (let xPosition = 1; xPosition < width - 1; xPosition += 1) {
-      const centerIndex = yPosition * width + xPosition;
-      const center = grayscale[centerIndex] ?? 0;
-      const left = grayscale[centerIndex - 1] ?? center;
-      const right = grayscale[centerIndex + 1] ?? center;
-      const top = grayscale[centerIndex - width] ?? center;
-      const bottom = grayscale[centerIndex + width] ?? center;
-      const laplacian = Math.abs(left + right + top + bottom - 4 * center);
-
-      laplacianTotal += laplacian;
-      sampleCount += 1;
+      weightedXTotal += (xPosition / Math.max(1, width - 1)) * weight;
+      weightedYTotal += (yPosition / Math.max(1, height - 1)) * weight;
+      totalWeight += weight;
     }
   }
 
-  return Math.round(laplacianTotal / Math.max(1, sampleCount));
+  return {
+    visualWeightX: Math.round((weightedXTotal / totalWeight) * 100) / 100,
+    visualWeightY: Math.round((weightedYTotal / totalWeight) * 100) / 100,
+  };
+}
+
+function getRegionalBrightness(grayscale: number[], width: number, height: number) {
+  let centerTotal = 0;
+  let centerCount = 0;
+  let edgeTotal = 0;
+  let edgeCount = 0;
+  const centerLeft = width * 0.25;
+  const centerRight = width * 0.75;
+  const centerTop = height * 0.25;
+  const centerBottom = height * 0.75;
+
+  for (let yPosition = 0; yPosition < height; yPosition += 1) {
+    for (let xPosition = 0; xPosition < width; xPosition += 1) {
+      const luminance = grayscale[yPosition * width + xPosition] ?? 0;
+      const isCenter =
+        xPosition >= centerLeft && xPosition <= centerRight && yPosition >= centerTop && yPosition <= centerBottom;
+
+      if (isCenter) {
+        centerTotal += luminance;
+        centerCount += 1;
+      } else {
+        edgeTotal += luminance;
+        edgeCount += 1;
+      }
+    }
+  }
+
+  return {
+    centerBrightness: Math.round(centerTotal / Math.max(1, centerCount)),
+    edgeBrightness: Math.round(edgeTotal / Math.max(1, edgeCount)),
+  };
 }
 
 function estimateTiltDegrees(grayscale: number[], width: number, height: number) {
@@ -59,7 +102,7 @@ function estimateTiltDegrees(grayscale: number[], width: number, height: number)
   const halfWidth = Math.floor(width / 2);
   const step = Math.max(1, Math.floor(Math.min(width, height) / 180));
 
-  // 粗略寻找水平强边缘左右两侧的高度差，用来提示“可能歪了”。
+  // 粗略寻找水平强边缘左右两侧的高度差，用来提示“画面可能歪了”。
   for (let yPosition = step; yPosition < height - step; yPosition += step) {
     for (let xPosition = step; xPosition < width - step; xPosition += step) {
       const centerIndex = yPosition * width + xPosition;
@@ -88,6 +131,26 @@ function estimateTiltDegrees(grayscale: number[], width: number, height: number)
   return Math.round(degrees * 10) / 10;
 }
 
+async function detectFaceSignals(imageBitmap: ImageBitmap): Promise<{ faceCount: number; eyeStatus: EyeStatus }> {
+  type FaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => {
+    detect(image: ImageBitmap): Promise<unknown[]>;
+  };
+  const maybeWindow = window as typeof window & { FaceDetector?: FaceDetectorConstructor };
+
+  if (!maybeWindow.FaceDetector) {
+    return { faceCount: 0, eyeStatus: 'unknown' };
+  }
+
+  try {
+    const detector = new maybeWindow.FaceDetector({ fastMode: true, maxDetectedFaces: 8 });
+    const faces = await detector.detect(imageBitmap);
+
+    return { faceCount: faces.length, eyeStatus: 'unknown' };
+  } catch {
+    return { faceCount: 0, eyeStatus: 'unknown' };
+  }
+}
+
 export function calculateImageMetricsFromPixels({ width, height, rgbaData }: PixelMetricInput): PixelMetrics {
   const pixelCount = Math.max(1, width * height);
   const grayscale: number[] = [];
@@ -108,14 +171,17 @@ export function calculateImageMetricsFromPixels({ width, height, rgbaData }: Pix
   const brightness = luminanceTotal / pixelCount;
   const variance =
     grayscale.reduce((sum, luminance) => sum + (luminance - brightness) ** 2, 0) / pixelCount;
+  const visualWeight = getVisualWeight(grayscale, width, height);
+  const regionalBrightness = getRegionalBrightness(grayscale, width, height);
 
   return {
     brightness: Math.round(brightness),
     darkPixelRatio: Math.round((darkPixelCount / pixelCount) * 100) / 100,
     brightPixelRatio: Math.round((brightPixelCount / pixelCount) * 100) / 100,
     contrast: Math.round(Math.sqrt(variance)),
-    sharpness: calculateSharpness(grayscale, width, height),
     tiltDegrees: estimateTiltDegrees(grayscale, width, height),
+    ...visualWeight,
+    ...regionalBrightness,
   };
 }
 
@@ -143,6 +209,7 @@ export async function analyzeImageFile(file: File): Promise<RawPhotoMetrics> {
     height: sampleHeight,
     rgbaData: imageData.data,
   });
+  const faceSignals = await detectFaceSignals(imageBitmap);
 
   imageBitmap.close();
 
@@ -150,5 +217,7 @@ export async function analyzeImageFile(file: File): Promise<RawPhotoMetrics> {
     width: originalWidth,
     height: originalHeight,
     ...pixelMetrics,
+    ...faceSignals,
   };
 }
+

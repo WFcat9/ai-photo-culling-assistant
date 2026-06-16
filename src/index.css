@@ -512,6 +512,83 @@ img {
   gap: 10px;
 }
 
+.dimension-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dimension-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 13px;
+}
+
+.dimension-card > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dimension-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.dimension-card strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.dimension-card p {
+  margin: 0;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.dimension-card ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.dimension-good {
+  border-color: rgba(21, 164, 108, 0.22);
+}
+
+.dimension-good strong {
+  color: var(--green);
+}
+
+.dimension-notice {
+  border-color: rgba(200, 121, 25, 0.28);
+  background: rgba(200, 121, 25, 0.05);
+}
+
+.dimension-notice strong {
+  color: var(--amber);
+}
+
+.dimension-problem {
+  border-color: rgba(217, 45, 32, 0.26);
+  background: rgba(217, 45, 32, 0.05);
+}
+
+.dimension-problem strong {
+  color: var(--red);
+}
+
 .suggestion-block {
   display: grid;
   gap: 12px;
@@ -531,6 +608,13 @@ img {
   margin: 0;
   padding-left: 18px;
   color: #344054;
+  line-height: 1.7;
+}
+
+.portrait-note p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
   line-height: 1.7;
 }
 
@@ -599,7 +683,8 @@ img {
   }
 
   .summary-panel,
-  .metric-grid {
+  .metric-grid,
+  .dimension-grid {
     grid-template-columns: 1fr;
   }
 

@@ -1,4 +1,5 @@
 import {
+  Aperture,
   Camera,
   CheckCircle2,
   Download,
@@ -7,6 +8,7 @@ import {
   Info,
   Loader2,
   RefreshCw,
+  ScanFace,
   Trash2,
   Upload,
   Wrench,
@@ -14,7 +16,14 @@ import {
 } from 'lucide-react';
 import { ChangeEvent, DragEvent, useMemo, useRef, useState } from 'react';
 import { analyzeImageFile } from './lib/photoMetrics';
-import { PhotoAssessment, PhotoDecision, RawPhotoMetrics, scorePhoto, summarizeAssessments } from './lib/photoScoring';
+import {
+  DimensionAssessment,
+  PhotoAssessment,
+  PhotoDecision,
+  RawPhotoMetrics,
+  scorePhoto,
+  summarizeAssessments,
+} from './lib/photoScoring';
 
 type PhotoStatus = 'queued' | 'analyzing' | 'done' | 'error';
 
@@ -53,26 +62,54 @@ function createPhotoId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`;
 }
 
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
 function buildReportRows(photos: PhotoItem[]) {
   return photos
     .filter((photo) => photo.assessment && photo.metrics)
-    .map((photo) => ({
-      fileName: photo.fileName,
-      decision: decisionMeta[photo.assessment!.status].label,
-      score: photo.assessment!.score,
-      width: photo.metrics!.width,
-      height: photo.metrics!.height,
-      sharpness: photo.metrics!.sharpness,
-      brightness: photo.metrics!.brightness,
-      contrast: photo.metrics!.contrast,
-      tiltDegrees: photo.metrics!.tiltDegrees,
-      suggestions: photo.assessment!.suggestions.join('；'),
-    }));
+    .map((photo) => {
+      const assessment = photo.assessment!;
+      const metrics = photo.metrics!;
+
+      return {
+        fileName: photo.fileName,
+        decision: decisionMeta[assessment.status].label,
+        score: assessment.score,
+        width: metrics.width,
+        height: metrics.height,
+        brightness: metrics.brightness,
+        contrast: metrics.contrast,
+        darkPixelRatio: formatPercent(metrics.darkPixelRatio),
+        brightPixelRatio: formatPercent(metrics.brightPixelRatio),
+        tiltDegrees: metrics.tiltDegrees,
+        visualWeight: `${Math.round(metrics.visualWeightX * 100)}%, ${Math.round(metrics.visualWeightY * 100)}%`,
+        dimensions: assessment.dimensionAssessments
+          .map((dimension) => `${dimension.label}:${dimension.summary}`)
+          .join('；'),
+        suggestions: assessment.suggestions.join('；'),
+      };
+    });
 }
 
 function downloadReport(photos: PhotoItem[]) {
   const rows = buildReportRows(photos);
-  const header = ['文件名', '判断', '分数', '宽', '高', '清晰度', '亮度', '对比度', '倾斜角', '建议'];
+  const header = [
+    '文件名',
+    '判断',
+    '综合分',
+    '宽',
+    '高',
+    '亮度',
+    '对比度',
+    '暗部比例',
+    '过曝比例',
+    '倾斜角',
+    '视觉重心',
+    '多维评价',
+    '改进建议',
+  ];
   const csvRows = [
     header,
     ...rows.map((row) => [
@@ -81,10 +118,13 @@ function downloadReport(photos: PhotoItem[]) {
       String(row.score),
       String(row.width),
       String(row.height),
-      String(row.sharpness),
       String(row.brightness),
       String(row.contrast),
+      row.darkPixelRatio,
+      row.brightPixelRatio,
       String(row.tiltDegrees),
+      row.visualWeight,
+      row.dimensions,
       row.suggestions,
     ]),
   ];
@@ -93,7 +133,7 @@ function downloadReport(photos: PhotoItem[]) {
   const link = document.createElement('a');
 
   link.href = URL.createObjectURL(blob);
-  link.download = 'photo-screening-report.csv';
+  link.download = 'photo-content-analysis-report.csv';
   link.click();
   URL.revokeObjectURL(link.href);
 }
@@ -119,12 +159,29 @@ function DecisionBadge({ decision }: { decision: PhotoDecision }) {
   );
 }
 
+function DimensionCard({ dimension }: { dimension: DimensionAssessment }) {
+  return (
+    <article className={`dimension-card dimension-${dimension.status}`}>
+      <div>
+        <span>{dimension.label}</span>
+        <strong>{dimension.score}</strong>
+      </div>
+      <p>{dimension.summary}</p>
+      <ul>
+        {dimension.suggestions.slice(0, 2).map((suggestion) => (
+          <li key={suggestion}>{suggestion}</li>
+        ))}
+      </ul>
+    </article>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="empty-state">
       <Image aria-hidden="true" size={40} />
       <h2>先拖入一批照片</h2>
-      <p>第一版会在本地分析清晰度、曝光、对比度、画面倾斜和尺寸，帮你先筛出明显问题图。</p>
+      <p>这一版会从构图、光影、曝光、暗部、人物状态和画面比例六个方向筛片，不再用清晰度打分。</p>
     </div>
   );
 }
@@ -244,9 +301,9 @@ function App() {
       <section className="hero-workspace">
         <div className="upload-column">
           <div>
-            <h1>批量筛出问题照片，先把选片效率提起来。</h1>
+            <h1>从画面内容出发，做更像摄影师的筛片判断。</h1>
             <p>
-              这一版完全在浏览器本地运行，不上传原图。它先做基础质量筛查：模糊、过暗、过曝、低反差、画面倾斜和尺寸偏小。
+              本地分析构图、光影、曝光、暗部、人物状态和画面比例，给出可执行的裁切与后期建议。照片不会上传，适合免费部署给别人使用。
             </p>
           </div>
 
@@ -265,7 +322,7 @@ function App() {
 
           <div className="notice-row">
             <Info aria-hidden="true" size={16} />
-            第一阶段是“初筛助手”，不会替代你的审美判断；它负责把明显坏片先挑出来。
+            当前免费版不调用付费视觉 API；闭眼会先做基础风险提示，后续可接入本地人脸关键点模型。
           </div>
         </div>
 
@@ -275,7 +332,7 @@ function App() {
           <MetricPill label="进入待修" value={summary.reviewCount} />
           <MetricPill label="建议淘汰" value={summary.rejectCount} />
           <div className="score-meter">
-            <span>平均质量分</span>
+            <span>平均综合分</span>
             <strong>{summary.averageScore}</strong>
             <div>
               <i style={{ width: `${summary.averageScore}%` }} />
@@ -357,43 +414,64 @@ function App() {
                 {selectedPhoto.assessment && selectedPhoto.metrics ? (
                   <>
                     <div className="quality-score">
-                      <span>质量分</span>
+                      <span>综合分</span>
                       <strong>{selectedPhoto.assessment.score}</strong>
                     </div>
 
+                    <div className="dimension-grid">
+                      {selectedPhoto.assessment.dimensionAssessments.map((dimension) => (
+                        <DimensionCard key={dimension.key} dimension={dimension} />
+                      ))}
+                    </div>
+
                     <div className="metric-grid">
-                      <MetricPill label="尺寸" value={`${selectedPhoto.metrics.width} × ${selectedPhoto.metrics.height}`} />
-                      <MetricPill label="清晰度" value={selectedPhoto.metrics.sharpness} />
+                      <MetricPill label="尺寸" value={`${selectedPhoto.metrics.width} x ${selectedPhoto.metrics.height}`} />
                       <MetricPill label="亮度" value={selectedPhoto.metrics.brightness} />
                       <MetricPill label="对比度" value={selectedPhoto.metrics.contrast} />
-                      <MetricPill label="过暗比例" value={`${Math.round(selectedPhoto.metrics.darkPixelRatio * 100)}%`} />
-                      <MetricPill label="过曝比例" value={`${Math.round(selectedPhoto.metrics.brightPixelRatio * 100)}%`} />
+                      <MetricPill label="暗部比例" value={formatPercent(selectedPhoto.metrics.darkPixelRatio)} />
+                      <MetricPill label="过曝比例" value={formatPercent(selectedPhoto.metrics.brightPixelRatio)} />
+                      <MetricPill
+                        label="视觉重心"
+                        value={`${Math.round(selectedPhoto.metrics.visualWeightX * 100)}%, ${Math.round(
+                          selectedPhoto.metrics.visualWeightY * 100,
+                        )}%`}
+                      />
                     </div>
 
                     <div className="suggestion-block">
                       <div className="block-title">
-                        <FileText aria-hidden="true" size={17} />
-                        筛片建议
+                        <Aperture aria-hidden="true" size={17} />
+                        重点修改建议
                       </div>
                       <ul>
-                        {selectedPhoto.assessment.suggestions.map((suggestion) => (
+                        {selectedPhoto.assessment.suggestions.slice(0, 8).map((suggestion) => (
                           <li key={suggestion}>{suggestion}</li>
                         ))}
                       </ul>
+                    </div>
+
+                    <div className="suggestion-block portrait-note">
+                      <div className="block-title">
+                        <ScanFace aria-hidden="true" size={17} />
+                        人物状态说明
+                      </div>
+                      <p>
+                        当前识别到 {selectedPhoto.metrics.faceCount ?? 0} 张人脸。闭眼判断在免费本地版中先做风险提示，下一阶段可接入本地关键点模型继续增强。
+                      </p>
                     </div>
                   </>
                 ) : (
                   <div className="pending-detail">
                     <Loader2 aria-hidden="true" size={20} />
-                    正在读取图片质量数据
+                    正在读取画面内容数据
                   </div>
                 )}
               </div>
             </>
           ) : (
             <div className="detail-empty">
-              <Image aria-hidden="true" size={42} />
-              <p>选择一张照片后，这里会显示详细指标和修改建议。</p>
+              <FileText aria-hidden="true" size={42} />
+              <p>选择一张照片后，这里会显示六个维度的摄影点评和具体改进建议。</p>
             </div>
           )}
         </aside>

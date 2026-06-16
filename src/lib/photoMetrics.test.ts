@@ -6,7 +6,7 @@ function rgbaPixels(values: number[]) {
 }
 
 describe('calculateImageMetricsFromPixels', () => {
-  it('能计算均匀灰色图片的亮度和低对比度', () => {
+  it('能计算均匀灰色图片的亮度、对比度和明暗比例', () => {
     const metrics = calculateImageMetricsFromPixels({
       width: 3,
       height: 3,
@@ -19,7 +19,7 @@ describe('calculateImageMetricsFromPixels', () => {
     expect(metrics.brightPixelRatio).toBe(0);
   });
 
-  it('能识别过暗和过亮像素比例', () => {
+  it('能识别过暗和过曝像素比例', () => {
     const metrics = calculateImageMetricsFromPixels({
       width: 2,
       height: 2,
@@ -30,19 +30,36 @@ describe('calculateImageMetricsFromPixels', () => {
     expect(metrics.brightPixelRatio).toBe(0.5);
   });
 
-  it('细节变化明显的图片清晰度高于纯色图片', () => {
-    const flat = calculateImageMetricsFromPixels({
+  it('能估算画面的视觉重心位置', () => {
+    const metrics = calculateImageMetricsFromPixels({
       width: 4,
       height: 4,
-      rgbaData: rgbaPixels(new Array(16).fill(128)),
+      rgbaData: rgbaPixels([
+        20, 20, 20, 240,
+        20, 20, 20, 240,
+        20, 20, 20, 240,
+        20, 20, 20, 240,
+      ]),
     });
 
-    const checkerboard = calculateImageMetricsFromPixels({
-      width: 4,
-      height: 4,
-      rgbaData: rgbaPixels([0, 255, 0, 255, 255, 0, 255, 0, 0, 255, 0, 255, 255, 0, 255, 0]),
+    expect(metrics.visualWeightX).toBeGreaterThan(0.62);
+    expect(metrics.visualWeightY).toBeGreaterThan(0.38);
+    expect(metrics.visualWeightY).toBeLessThan(0.62);
+  });
+
+  it('能区分中心亮度和边缘亮度，用于光影建议', () => {
+    const metrics = calculateImageMetricsFromPixels({
+      width: 5,
+      height: 5,
+      rgbaData: rgbaPixels([
+        220, 220, 220, 220, 220,
+        220, 40, 40, 40, 220,
+        220, 40, 40, 40, 220,
+        220, 40, 40, 40, 220,
+        220, 220, 220, 220, 220,
+      ]),
     });
 
-    expect(checkerboard.sharpness).toBeGreaterThan(flat.sharpness);
+    expect(metrics.centerBrightness).toBeLessThan(metrics.edgeBrightness);
   });
 });
