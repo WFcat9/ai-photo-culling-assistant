@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeFaceDetectionMode, scorePhoto, summarizeAssessments } from './photoScoring';
+import { describeFaceDetectionMode, describeFaceShapeTendency, scorePhoto, summarizeAssessments } from './photoScoring';
 
 describe('scorePhoto', () => {
   it('从构图、光影、曝光、暗部、人物、比例六个维度评价照片', () => {
@@ -18,6 +18,13 @@ describe('scorePhoto', () => {
       faceCount: 1,
       eyeStatus: 'open',
       faceDetectionMode: 'full_frame',
+      faceSizeRatio: 0.13,
+      faceTopMargin: 0.11,
+      faceBottomMargin: 0.13,
+      faceLeftMargin: 0.18,
+      faceRightMargin: 0.2,
+      faceTiltDegrees: 1.6,
+      faceShapeTendency: 'balanced',
     });
 
     expect(result.status).toBe('keep');
@@ -49,6 +56,13 @@ describe('scorePhoto', () => {
       faceCount: 1,
       eyeStatus: 'open',
       faceDetectionMode: 'full_frame',
+      faceSizeRatio: 0.14,
+      faceTopMargin: 0.09,
+      faceBottomMargin: 0.12,
+      faceLeftMargin: 0.16,
+      faceRightMargin: 0.18,
+      faceTiltDegrees: 0.8,
+      faceShapeTendency: 'balanced',
     });
 
     expect(result.badges.join('')).not.toContain('模糊');
@@ -72,6 +86,13 @@ describe('scorePhoto', () => {
       faceCount: 1,
       eyeStatus: 'closed_risk',
       faceDetectionMode: 'center_focus',
+      faceSizeRatio: 0.03,
+      faceTopMargin: 0.02,
+      faceBottomMargin: 0.018,
+      faceLeftMargin: 0.015,
+      faceRightMargin: 0.19,
+      faceTiltDegrees: 8.2,
+      faceShapeTendency: 'long',
     });
 
     const adviceText = result.suggestions.join('\n');
@@ -88,6 +109,7 @@ describe('scorePhoto', () => {
     expect(adviceText).toContain('闭眼');
     expect(adviceText).toContain('裁切');
     expect(adviceText).toContain('局部补检');
+    expect(adviceText).toContain('偏长脸倾向');
   });
 
   it('未识别到人脸时，会明确提醒人工复核和识别条件', () => {
@@ -106,6 +128,7 @@ describe('scorePhoto', () => {
       faceCount: 0,
       eyeStatus: 'unknown',
       faceDetectionMode: 'not_detected',
+      faceShapeTendency: 'unknown',
     });
 
     const portraitAdvice = result.dimensionAssessments.find((item) => item.key === 'portrait');
@@ -119,6 +142,13 @@ describe('describeFaceDetectionMode', () => {
   it('输出面向用户的人脸识别路径说明', () => {
     expect(describeFaceDetectionMode('full_frame')).toBe('整张画面直接识别');
     expect(describeFaceDetectionMode('upper_focus')).toBe('上半区补检识别');
+  });
+});
+
+describe('describeFaceShapeTendency', () => {
+  it('输出面向用户的脸型倾向说明', () => {
+    expect(describeFaceShapeTendency('round')).toBe('偏圆脸倾向');
+    expect(describeFaceShapeTendency('balanced')).toBe('比例较均衡');
   });
 });
 

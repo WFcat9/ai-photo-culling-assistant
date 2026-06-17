@@ -18,6 +18,7 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 're
 import { warmupFaceLandmarker } from './lib/faceSignals';
 import { analyzeImageFile } from './lib/photoMetrics';
 import {
+  describeFaceShapeTendency,
   describeEyeStatus,
   describeFaceDetectionMode,
   DimensionAssessment,
@@ -80,6 +81,37 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
+function formatOptionalPercent(value?: number) {
+  if (typeof value !== 'number') return '--';
+  return formatPercent(value);
+}
+
+function buildFaceFramingNote(metrics: RawPhotoMetrics) {
+  const notes: string[] = [];
+
+  if ((metrics.faceSizeRatio ?? 0) > 0) {
+    notes.push(`脸部约占画面 ${formatPercent(metrics.faceSizeRatio ?? 0)}`);
+  }
+
+  if ((metrics.faceTopMargin ?? 1) < 0.04) {
+    notes.push('头顶留白偏紧');
+  }
+
+  if ((metrics.faceBottomMargin ?? 1) < 0.035) {
+    notes.push('下巴贴边偏紧');
+  }
+
+  if (((metrics.faceLeftMargin ?? 1) < 0.03) || ((metrics.faceRightMargin ?? 1) < 0.03)) {
+    notes.push('左右裁切偏紧');
+  }
+
+  if (Math.abs(metrics.faceTiltDegrees ?? 0) > 7) {
+    notes.push(`头部倾斜约 ${Math.abs(metrics.faceTiltDegrees ?? 0).toFixed(1)}°`);
+  }
+
+  return notes.length > 0 ? notes.join('，') : '脸部构图目前比较稳。';
+}
+
 function buildReportRows(photos: PhotoItem[]) {
   return photos
     .filter((photo) => photo.assessment && photo.metrics)
@@ -102,6 +134,8 @@ function buildReportRows(photos: PhotoItem[]) {
         faceCount: metrics.faceCount ?? 0,
         faceDetectionMode: describeFaceDetectionMode(metrics.faceDetectionMode),
         eyeStatus: describeEyeStatus(metrics.eyeStatus),
+        faceShapeTendency: describeFaceShapeTendency(metrics.faceShapeTendency),
+        faceSizeRatio: formatOptionalPercent(metrics.faceSizeRatio),
         dimensions: assessment.dimensionAssessments.map((dimension) => `${dimension.label}:${dimension.summary}`).join('；'),
         suggestions: assessment.suggestions.join('；'),
       };
@@ -125,6 +159,8 @@ function downloadReport(photos: PhotoItem[]) {
     '识别到的人脸数',
     '人脸识别路径',
     '眼部状态',
+    '脸型倾向',
+    '脸部占比',
     '多维评价',
     '改进建议',
   ];
@@ -145,6 +181,8 @@ function downloadReport(photos: PhotoItem[]) {
       String(row.faceCount),
       row.faceDetectionMode,
       row.eyeStatus,
+      row.faceShapeTendency,
+      row.faceSizeRatio,
       row.dimensions,
       row.suggestions,
     ]),
@@ -523,6 +561,8 @@ function App() {
                       <MetricPill label="对比度" value={selectedPhoto.metrics.contrast} />
                       <MetricPill label="暗部比例" value={formatPercent(selectedPhoto.metrics.darkPixelRatio)} />
                       <MetricPill label="过曝比例" value={formatPercent(selectedPhoto.metrics.brightPixelRatio)} />
+                      <MetricPill label="脸型倾向" value={describeFaceShapeTendency(selectedPhoto.metrics.faceShapeTendency)} />
+                      <MetricPill label="脸部占比" value={formatOptionalPercent(selectedPhoto.metrics.faceSizeRatio)} />
                       <MetricPill
                         label="视觉重心"
                         value={`${Math.round(selectedPhoto.metrics.visualWeightX * 100)}%, ${Math.round(
@@ -551,7 +591,13 @@ function App() {
                       <p>
                         当前识别到 {selectedPhoto.metrics.faceCount ?? 0} 张人脸；识别路径为
                         {describeFaceDetectionMode(selectedPhoto.metrics.faceDetectionMode)}；眼部状态判断为
-                        {describeEyeStatus(selectedPhoto.metrics.eyeStatus)}。
+                        {describeEyeStatus(selectedPhoto.metrics.eyeStatus)}；脸型判断为
+                        {describeFaceShapeTendency(selectedPhoto.metrics.faceShapeTendency)}。
+                      </p>
+                      <p>{buildFaceFramingNote(selectedPhoto.metrics)}</p>
+                      <p>
+                        头顶余量 {formatOptionalPercent(selectedPhoto.metrics.faceTopMargin)}，下巴余量{' '}
+                        {formatOptionalPercent(selectedPhoto.metrics.faceBottomMargin)}，更适合继续判断人物裁切是否舒服。
                       </p>
                     </div>
                   </>

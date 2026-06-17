@@ -40,7 +40,10 @@ describe('extractFaceAnalysis', () => {
   it('能从 Face Landmarker 结果里提取人脸数量和闭眼状态', () => {
     const result = extractFaceAnalysis(
       {
-        faceLandmarks: [[{ x: 0.1, y: 0.2, z: 0 }], [{ x: 0.5, y: 0.6, z: 0 }]],
+        faceLandmarks: [
+          Array.from({ length: 300 }, () => ({ x: 0.4, y: 0.4, z: 0 })),
+          [{ x: 0.5, y: 0.6, z: 0 }],
+        ],
         faceBlendshapes: [
           {
             categories: [
@@ -56,5 +59,29 @@ describe('extractFaceAnalysis', () => {
     expect(result.faceCount).toBe(2);
     expect(result.eyeStatus).toBe('closed_risk');
     expect(result.detectionMode).toBe('upper_focus');
+  });
+
+  it('能提取脸部占比和边界余量', () => {
+    const landmarks = Array.from({ length: 300 }, (_, index) => ({
+      x: 0.32 + (index % 2) * 0.28,
+      y: 0.12 + (index % 3) * 0.34,
+      z: 0,
+    }));
+
+    landmarks[33] = { x: 0.36, y: 0.32, z: 0 };
+    landmarks[263] = { x: 0.58, y: 0.36, z: 0 };
+
+    const result = extractFaceAnalysis(
+      {
+        faceLandmarks: [landmarks],
+        faceBlendshapes: [],
+      },
+      'full_frame',
+    );
+
+    expect(result.faceSizeRatio).toBeGreaterThan(0.18);
+    expect(result.faceTopMargin).toBeCloseTo(0.12, 2);
+    expect(result.faceShapeTendency).toBe('long');
+    expect(result.faceTiltDegrees).toBeGreaterThan(0);
   });
 });

@@ -3,6 +3,7 @@ export type PhotoDecision = 'keep' | 'review' | 'reject';
 export type EyeStatus = 'unknown' | 'open' | 'closed_risk';
 
 export type FaceDetectionMode = 'full_frame' | 'upper_focus' | 'center_focus' | 'native_api' | 'not_detected';
+export type FaceShapeTendency = 'unknown' | 'balanced' | 'round' | 'long';
 
 export type RawPhotoMetrics = {
   width: number;
@@ -19,6 +20,13 @@ export type RawPhotoMetrics = {
   faceCount?: number;
   eyeStatus?: EyeStatus;
   faceDetectionMode?: FaceDetectionMode;
+  faceSizeRatio?: number;
+  faceTopMargin?: number;
+  faceBottomMargin?: number;
+  faceLeftMargin?: number;
+  faceRightMargin?: number;
+  faceTiltDegrees?: number;
+  faceShapeTendency?: FaceShapeTendency;
 };
 
 export type AnalysisDimension = 'composition' | 'lighting' | 'exposure' | 'shadow' | 'portrait' | 'ratio';
@@ -102,6 +110,19 @@ export function describeEyeStatus(status?: EyeStatus) {
       return '存在闭眼风险';
     default:
       return '需要人工复核';
+  }
+}
+
+export function describeFaceShapeTendency(tendency?: FaceShapeTendency) {
+  switch (tendency) {
+    case 'long':
+      return '偏长脸倾向';
+    case 'round':
+      return '偏圆脸倾向';
+    case 'balanced':
+      return '比例较均衡';
+    default:
+      return '暂未稳定判断';
   }
 }
 
@@ -270,6 +291,13 @@ function assessPortrait(metrics: RawPhotoMetrics): DimensionAssessment {
   const faceCount = metrics.faceCount ?? 0;
   const eyeStatus = metrics.eyeStatus ?? 'unknown';
   const faceDetectionMode = metrics.faceDetectionMode ?? 'not_detected';
+  const faceSizeRatio = metrics.faceSizeRatio ?? 0;
+  const faceTopMargin = metrics.faceTopMargin ?? 0;
+  const faceBottomMargin = metrics.faceBottomMargin ?? 0;
+  const faceLeftMargin = metrics.faceLeftMargin ?? 0;
+  const faceRightMargin = metrics.faceRightMargin ?? 0;
+  const faceTiltDegrees = Math.abs(metrics.faceTiltDegrees ?? 0);
+  const faceShapeTendency = metrics.faceShapeTendency ?? 'unknown';
 
   if (faceCount === 0) {
     score -= 12;
@@ -277,6 +305,35 @@ function assessPortrait(metrics: RawPhotoMetrics): DimensionAssessment {
     suggestions.push('这类漏检更常见于脸太小、侧脸角度过大、眼部被头发或手遮挡、逆光过重，或者人物离镜头太远。');
     suggestions.push('想让批量筛片更稳，尽量让主角脸部至少占画面短边约 12% 到 15%，并保证眼睛附近有可见细节。');
   } else {
+    if (faceSizeRatio > 0 && faceSizeRatio < 0.035) {
+      score -= 12;
+      suggestions.push('主角脸部在整张画面里偏小，这张更适合做氛围留片，不适合拿来做精细表情和脸型判断。');
+      suggestions.push('如果后续要继续做人脸分析、闭眼筛选或脸型建议，优先准备更近一点的版本，或先裁出主角区域再分析。');
+    } else if (faceSizeRatio > 0.28) {
+      score -= 6;
+      suggestions.push('脸部占比已经比较大，修图时注意不要把额头、下巴和发际线修得太紧，避免越修越有压迫感。');
+    }
+
+    if (faceTopMargin > 0 && faceTopMargin < 0.04) {
+      score -= 8;
+      suggestions.push('头顶留白偏紧，有顶边裁切风险；如果不是刻意近景，建议补一点头顶空间会更耐看。');
+    }
+
+    if (faceBottomMargin > 0 && faceBottomMargin < 0.035) {
+      score -= 6;
+      suggestions.push('下巴或颈部离底边太近，人物会显得憋，适合重新裁切或改用更松一点的构图。');
+    }
+
+    if ((faceLeftMargin > 0 && faceLeftMargin < 0.03) || (faceRightMargin > 0 && faceRightMargin < 0.03)) {
+      score -= 8;
+      suggestions.push('脸部左右边缘过紧，容易出现“脸贴边”的紧张感，批量筛片时建议把这类图单独复核。');
+    }
+
+    if (faceTiltDegrees > 7) {
+      score -= 4;
+      suggestions.push('人物头部有明显倾斜，筛片时建议顺手确认这是不是有意的动作表达，而不是拍摄瞬间失衡。');
+    }
+
     if (faceCount > 1) {
       score -= 4;
       suggestions.push('画面中可能有多张脸，建议逐个检查主角表情是否统一。');
@@ -292,6 +349,14 @@ function assessPortrait(metrics: RawPhotoMetrics): DimensionAssessment {
       suggestions.push('这张是通过浏览器回退能力识别到人脸，说明模型判断不算特别稳，建议放大再看一遍眼神和表情。');
     } else {
       suggestions.push('这张在人脸识别上比较顺，说明人物主体足够明确，后续闭眼和表情判断会更稳。');
+    }
+
+    if (faceShapeTendency === 'long') {
+      suggestions.push('从轮廓比例看更偏长脸倾向，修图时不要再纵向拉长，优先整理两颊和下颌线的光影关系。');
+    } else if (faceShapeTendency === 'round') {
+      suggestions.push('从轮廓比例看更偏圆脸倾向，修图时优先整理下颌线和两颊明暗，不建议直接把脸生硬拉尖。');
+    } else if (faceShapeTendency === 'balanced') {
+      suggestions.push('轮廓比例比较均衡，脸型本身不用强改，后期把重点放在肤色、法令纹和发丝边缘会更自然。');
     }
 
     if (eyeStatus === 'closed_risk') {
@@ -316,7 +381,7 @@ function assessPortrait(metrics: RawPhotoMetrics): DimensionAssessment {
     faceCount === 0
       ? '人物状态需要人工复核，暂未稳定识别到人脸。'
       : score >= 84
-        ? `已识别到 ${faceCount} 张人脸，人物状态基本可用。`
+        ? `已识别到 ${faceCount} 张人脸，人物状态基本可用，且可以开始做初步脸部判断。`
         : `已识别到 ${faceCount} 张人脸，但人物状态仍需复核。`,
     suggestions,
   );

@@ -305,5 +305,12 @@ export async function analyzeImageFile(file: File): Promise<RawPhotoMetrics> {
     faceCount: fallbackFaceSignals.faceCount,
     eyeStatus: fallbackFaceSignals.eyeStatus,
     faceDetectionMode: fallbackFaceSignals.detectionMode,
+    faceSizeRatio: fallbackFaceSignals.faceSizeRatio,
+    faceTopMargin: fallbackFaceSignals.faceTopMargin,
+    faceBottomMargin: fallbackFaceSignals.faceBottomMargin,
+    faceLeftMargin: fallbackFaceSignals.faceLeftMargin,
+    faceRightMargin: fallbackFaceSignals.faceRightMargin,
+    faceTiltDegrees: fallbackFaceSignals.faceTiltDegrees,
+    faceShapeTendency: fallbackFaceSignals.faceShapeTendency,
   };
 }
