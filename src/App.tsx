@@ -14,9 +14,12 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react';
-import { ChangeEvent, DragEvent, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { warmupFaceLandmarker } from './lib/faceSignals';
 import { analyzeImageFile } from './lib/photoMetrics';
 import {
+  describeEyeStatus,
+  describeFaceDetectionMode,
   DimensionAssessment,
   PhotoAssessment,
   PhotoDecision,
@@ -38,7 +41,18 @@ type PhotoItem = {
   errorMessage?: string;
 };
 
+type DemoSample = {
+  fileName: string;
+  url: string;
+};
+
 type FilterValue = 'all' | PhotoDecision;
+type FaceEngineStatus = 'loading' | 'ready' | 'failed';
+
+const DEMO_PORTRAITS: DemoSample[] = [
+  { fileName: '示例-人像-1.jpeg', url: '/portfolio/camera-girl.jpeg' },
+  { fileName: '示例-人像-2.jpeg', url: '/portfolio/seaside-portrait.jpeg' },
+];
 
 const decisionMeta: Record<PhotoDecision, { label: string; tone: string; icon: typeof CheckCircle2 }> = {
   keep: { label: '保留', tone: 'keep', icon: CheckCircle2 },
@@ -85,9 +99,10 @@ function buildReportRows(photos: PhotoItem[]) {
         brightPixelRatio: formatPercent(metrics.brightPixelRatio),
         tiltDegrees: metrics.tiltDegrees,
         visualWeight: `${Math.round(metrics.visualWeightX * 100)}%, ${Math.round(metrics.visualWeightY * 100)}%`,
-        dimensions: assessment.dimensionAssessments
-          .map((dimension) => `${dimension.label}:${dimension.summary}`)
-          .join('；'),
+        faceCount: metrics.faceCount ?? 0,
+        faceDetectionMode: describeFaceDetectionMode(metrics.faceDetectionMode),
+        eyeStatus: describeEyeStatus(metrics.eyeStatus),
+        dimensions: assessment.dimensionAssessments.map((dimension) => `${dimension.label}:${dimension.summary}`).join('；'),
         suggestions: assessment.suggestions.join('；'),
       };
     });
@@ -107,6 +122,9 @@ function downloadReport(photos: PhotoItem[]) {
     '过曝比例',
     '倾斜角',
     '视觉重心',
+    '识别到的人脸数',
+    '人脸识别路径',
+    '眼部状态',
     '多维评价',
     '改进建议',
   ];
@@ -124,6 +142,9 @@ function downloadReport(photos: PhotoItem[]) {
       row.brightPixelRatio,
       String(row.tiltDegrees),
       row.visualWeight,
+      String(row.faceCount),
+      row.faceDetectionMode,
+      row.eyeStatus,
       row.dimensions,
       row.suggestions,
     ]),
@@ -168,7 +189,7 @@ function DimensionCard({ dimension }: { dimension: DimensionAssessment }) {
       </div>
       <p>{dimension.summary}</p>
       <ul>
-        {dimension.suggestions.slice(0, 2).map((suggestion) => (
+        {dimension.suggestions.slice(0, 3).map((suggestion) => (
           <li key={suggestion}>{suggestion}</li>
         ))}
       </ul>
@@ -186,12 +207,46 @@ function EmptyState() {
   );
 }
 
+async function buildDemoFile(sample: DemoSample) {
+  const response = await fetch(sample.url);
+
+  if (!response.ok) {
+    throw new Error('示例照片读取失败。');
+  }
+
+  const blob = await response.blob();
+
+  return new File([blob], sample.fileName, {
+    type: blob.type || 'image/jpeg',
+    lastModified: Date.now(),
+  });
+}
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterValue>('all');
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [faceEngineStatus, setFaceEngineStatus] = useState<FaceEngineStatus>('loading');
+  const [isLoadingSamples, setIsLoadingSamples] = useState(false);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    void warmupFaceLandmarker()
+      .then(() => {
+        if (isActive) setFaceEngineStatus('ready');
+      })
+      .catch(() => {
+        if (isActive) setFaceEngineStatus('failed');
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const completedAssessments = photos
     .map((photo) => photo.assessment)
@@ -247,11 +302,27 @@ function App() {
 
     if (nextPhotos.length === 0) return;
 
+    setNoticeMessage(null);
     setPhotos((currentPhotos) => [...nextPhotos, ...currentPhotos]);
     setSelectedPhotoId(nextPhotos[0].id);
     nextPhotos.forEach((photo, index) => {
       void analyzeOnePhoto(photo, imageFiles[index]);
     });
+  }
+
+  async function loadDemoPortraits() {
+    setIsLoadingSamples(true);
+    setNoticeMessage(null);
+
+    try {
+      const demoFiles = await Promise.all(DEMO_PORTRAITS.map((sample) => buildDemoFile(sample)));
+      handleFiles(demoFiles);
+      setNoticeMessage('已载入两张示例人像，你可以直接查看人脸识别和建议结果。');
+    } catch {
+      setNoticeMessage('示例照片加载失败，请稍后重试。');
+    } finally {
+      setIsLoadingSamples(false);
+    }
   }
 
   function handleInputChange(event: ChangeEvent<HTMLInputElement>) {
@@ -271,6 +342,7 @@ function App() {
     setPhotos([]);
     setSelectedPhotoId(null);
     setActiveFilter('all');
+    setNoticeMessage(null);
   }
 
   return (
@@ -287,6 +359,10 @@ function App() {
           <button className="ghost-button" type="button" onClick={() => fileInputRef.current?.click()}>
             <Upload aria-hidden="true" size={17} />
             选择照片
+          </button>
+          <button className="ghost-button" type="button" onClick={() => void loadDemoPortraits()} disabled={isLoadingSamples}>
+            {isLoadingSamples ? <Loader2 aria-hidden="true" size={17} /> : <Image aria-hidden="true" size={17} />}
+            {isLoadingSamples ? '载入示例中' : '加载示例人像'}
           </button>
           <button className="ghost-button" type="button" onClick={() => downloadReport(photos)} disabled={summary.totalCount === 0}>
             <Download aria-hidden="true" size={17} />
@@ -322,8 +398,25 @@ function App() {
 
           <div className="notice-row">
             <Info aria-hidden="true" size={16} />
-            当前免费版不调用付费视觉 API；闭眼会先做基础风险提示，后续可接入本地人脸关键点模型。
+            当前免费版不调用付费视觉 API；人脸模型状态：
+            <strong className={`engine-status engine-${faceEngineStatus}`}>
+              {faceEngineStatus === 'loading' ? '初始化中' : faceEngineStatus === 'ready' ? '已就绪' : '加载失败'}
+            </strong>
           </div>
+          <div className="notice-row secondary-note">
+            <ScanFace aria-hidden="true" size={16} />
+            未识别到人脸时，系统会自动尝试整图、上半区和中心区三轮补检；如果还抓不到，通常说明脸太小、遮挡太多或角度太偏。
+          </div>
+          <div className="notice-row secondary-note">
+            <ScanFace aria-hidden="true" size={16} />
+            人脸更稳的情况：正脸或轻微侧脸、脸部至少占画面短边约 12% 到 15%、眼部无遮挡、别严重过暗或过曝。
+          </div>
+          {noticeMessage ? (
+            <div className="notice-row secondary-note">
+              <Info aria-hidden="true" size={16} />
+              {noticeMessage}
+            </div>
+          ) : null}
         </div>
 
         <div className="summary-panel" aria-label="筛片统计">
@@ -444,7 +537,7 @@ function App() {
                         重点修改建议
                       </div>
                       <ul>
-                        {selectedPhoto.assessment.suggestions.slice(0, 8).map((suggestion) => (
+                        {selectedPhoto.assessment.suggestions.slice(0, 10).map((suggestion) => (
                           <li key={suggestion}>{suggestion}</li>
                         ))}
                       </ul>
@@ -456,7 +549,9 @@ function App() {
                         人物状态说明
                       </div>
                       <p>
-                        当前识别到 {selectedPhoto.metrics.faceCount ?? 0} 张人脸。闭眼判断在免费本地版中先做风险提示，下一阶段可接入本地关键点模型继续增强。
+                        当前识别到 {selectedPhoto.metrics.faceCount ?? 0} 张人脸；识别路径为
+                        {describeFaceDetectionMode(selectedPhoto.metrics.faceDetectionMode)}；眼部状态判断为
+                        {describeEyeStatus(selectedPhoto.metrics.eyeStatus)}。
                       </p>
                     </div>
                   </>

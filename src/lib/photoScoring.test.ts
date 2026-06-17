@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scorePhoto, summarizeAssessments } from './photoScoring';
+import { describeFaceDetectionMode, scorePhoto, summarizeAssessments } from './photoScoring';
 
 describe('scorePhoto', () => {
   it('从构图、光影、曝光、暗部、人物、比例六个维度评价照片', () => {
@@ -17,6 +17,7 @@ describe('scorePhoto', () => {
       edgeBrightness: 116,
       faceCount: 1,
       eyeStatus: 'open',
+      faceDetectionMode: 'full_frame',
     });
 
     expect(result.status).toBe('keep');
@@ -47,6 +48,7 @@ describe('scorePhoto', () => {
       edgeBrightness: 120,
       faceCount: 1,
       eyeStatus: 'open',
+      faceDetectionMode: 'full_frame',
     });
 
     expect(result.badges.join('')).not.toContain('模糊');
@@ -69,6 +71,7 @@ describe('scorePhoto', () => {
       edgeBrightness: 166,
       faceCount: 1,
       eyeStatus: 'closed_risk',
+      faceDetectionMode: 'center_focus',
     });
 
     const adviceText = result.suggestions.join('\n');
@@ -79,11 +82,43 @@ describe('scorePhoto', () => {
     expect(result.badges).toContain('暗部死黑');
     expect(result.badges).toContain('闭眼风险');
     expect(result.badges).toContain('比例不协调');
-    expect(adviceText).toContain('先拉正画面');
+    expect(adviceText).toContain('先把画面拉正');
     expect(adviceText).toContain('降低高光');
     expect(adviceText).toContain('提升阴影');
     expect(adviceText).toContain('闭眼');
     expect(adviceText).toContain('裁切');
+    expect(adviceText).toContain('局部补检');
+  });
+
+  it('未识别到人脸时，会明确提醒人工复核和识别条件', () => {
+    const result = scorePhoto({
+      width: 4200,
+      height: 2800,
+      brightness: 140,
+      darkPixelRatio: 0.12,
+      brightPixelRatio: 0.08,
+      contrast: 40,
+      tiltDegrees: 0.6,
+      visualWeightX: 0.5,
+      visualWeightY: 0.44,
+      centerBrightness: 145,
+      edgeBrightness: 118,
+      faceCount: 0,
+      eyeStatus: 'unknown',
+      faceDetectionMode: 'not_detected',
+    });
+
+    const portraitAdvice = result.dimensionAssessments.find((item) => item.key === 'portrait');
+
+    expect(portraitAdvice?.suggestions.join('')).toContain('整图、上半区和中心区域');
+    expect(portraitAdvice?.suggestions.join('')).toContain('12% 到 15%');
+  });
+});
+
+describe('describeFaceDetectionMode', () => {
+  it('输出面向用户的人脸识别路径说明', () => {
+    expect(describeFaceDetectionMode('full_frame')).toBe('整张画面直接识别');
+    expect(describeFaceDetectionMode('upper_focus')).toBe('上半区补检识别');
   });
 });
 
