@@ -94,6 +94,8 @@ const ASSET_VIEW_META: Record<AssetViewMode, { label: string; exportLabel: strin
   watermarked: { label: '水印副本', exportLabel: '水印副本' },
 };
 
+const REFERENCE_DASHBOARD_IMAGE = `${import.meta.env.BASE_URL}portfolio/photography-glass-reference.png`;
+
 const DEMO_PORTRAITS: DemoSample[] = [
   { fileName: '示例-人像-1.jpeg', url: '/portfolio/camera-girl.jpeg' },
   { fileName: '示例-人像-2.jpeg', url: '/portfolio/seaside-portrait.jpeg' },
@@ -1280,7 +1282,7 @@ function App() {
   return (
     <main className="app-shell">
       <section className="reference-dashboard" aria-label="AI 摄影筛片助手工作台">
-        <img src="/portfolio/photography-glass-reference.png" alt="AI 摄影筛片助手工作台参考界面" />
+        <img src={REFERENCE_DASHBOARD_IMAGE} alt="AI 摄影筛片助手工作台参考界面" />
         <div className="reference-hotspots">
           <button className="reference-hotspot upload" type="button" onClick={() => folderInputRef.current?.click()} aria-label="上传照片或文件夹" />
           <button className="reference-hotspot demo" type="button" onClick={() => void loadDemoPortraits()} aria-label="加载示例人像" />
