@@ -58,8 +58,8 @@ export type FaceAnalysis = {
   mouthOpenScore?: number;
 };
 
-const VISION_WASM_URL = '/mediapipe';
-const FACE_LANDMARKER_MODEL_URL = '/models/face_landmarker.task';
+const VISION_WASM_URL = `${import.meta.env.BASE_URL}mediapipe`;
+const FACE_LANDMARKER_MODEL_URL = `${import.meta.env.BASE_URL}models/face_landmarker.task`;
 const EYE_CLOSED_THRESHOLD = 0.58;
 const EYE_OPEN_THRESHOLD = 0.32;
 const EYE_DIFF_REVIEW_THRESHOLD = 0.34;
