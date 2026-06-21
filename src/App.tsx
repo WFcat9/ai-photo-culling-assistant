@@ -24,6 +24,7 @@ import { buildColorAdjustmentPlan, buildColorAdjustmentSettings, COLOR_PRESETS, 
 import { FACE_CAPTURE_GUIDE, FACE_REFERENCE_RANGES, isAboveRange, isBelowRange, isWithinRange } from './lib/faceReference';
 import { warmupFaceLandmarker } from './lib/faceSignals';
 import { analyzeImageFile } from './lib/photoMetrics';
+import { getWorkspaceShortcutPlan, type WorkspaceShortcut } from './lib/workspaceNavigation';
 import {
   describeFaceDetectionMode,
   describeExpressionBalance,
@@ -697,6 +698,9 @@ function buildWorkflowCopy(args: {
 function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const resultsLayoutRef = useRef<HTMLElement | null>(null);
+  const detailPanelRef = useRef<HTMLElement | null>(null);
+  const exportBarRef = useRef<HTMLDivElement | null>(null);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterValue>('all');
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
@@ -1169,6 +1173,38 @@ function App() {
     }
   }
 
+  function scrollToWorkspace(target: 'results' | 'detail' | 'export') {
+    window.requestAnimationFrame(() => {
+      const targetElement = target === 'detail' ? detailPanelRef.current : target === 'export' ? exportBarRef.current : resultsLayoutRef.current;
+      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function handleHomeShortcut(shortcut: WorkspaceShortcut) {
+    const plan = getWorkspaceShortcutPlan(shortcut);
+
+    if (plan.filter) {
+      focusFilter(plan.filter);
+    } else if (photos[0]) {
+      setSelectedPhotoId(photos[0].id);
+    }
+
+    if (plan.assetViewMode) {
+      setAssetViewMode(plan.assetViewMode);
+    }
+
+    if (plan.detailSection) {
+      openDetailSection(plan.detailSection);
+    }
+
+    scrollToWorkspace(plan.target);
+  }
+
+  async function loadDemoAndEnterWorkspace() {
+    await loadDemoPortraits();
+    scrollToWorkspace('results');
+  }
+
   function isDetailSectionVisible(sectionKey: DetailSectionKey) {
     return DETAIL_SECTION_ORDER.indexOf(sectionKey) <= unlockedDetailIndex;
   }
@@ -1224,6 +1260,7 @@ function App() {
     nextPhotos.forEach((photo, index) => {
       void analyzeOnePhoto(photo, imageFiles[index]);
     });
+    scrollToWorkspace('results');
   }
 
   async function loadDemoPortraits() {
@@ -1285,21 +1322,21 @@ function App() {
         <img src={REFERENCE_DASHBOARD_IMAGE} alt="AI 摄影筛片助手工作台参考界面" />
         <div className="reference-hotspots">
           <button className="reference-hotspot upload" type="button" onClick={() => folderInputRef.current?.click()} aria-label="上传照片或文件夹" />
-          <button className="reference-hotspot demo" type="button" onClick={() => void loadDemoPortraits()} aria-label="加载示例人像" />
-          <button className="reference-hotspot export" type="button" onClick={() => downloadReport(photos)} disabled={summary.totalCount === 0} aria-label="导出报告" />
-          <button className="reference-hotspot face" type="button" onClick={() => focusFilter('expression-review')} aria-label="人脸分析" />
-          <button className="reference-hotspot retouch" type="button" onClick={() => focusFilter('retouch-ready')} aria-label="修图建议" />
-          <button className="reference-hotspot color" type="button" onClick={() => setAssetViewMode('processed')} aria-label="批量调色" />
-          <button className="reference-hotspot watermark" type="button" onClick={() => setAssetViewMode('watermarked')} aria-label="批量水印" />
-          <button className="reference-hotspot report" type="button" onClick={() => downloadReport(photos)} disabled={summary.totalCount === 0} aria-label="导出报告" />
+          <button className="reference-hotspot demo" type="button" onClick={() => void loadDemoAndEnterWorkspace()} aria-label="加载示例人像" />
+          <button className="reference-hotspot export" type="button" onClick={() => handleHomeShortcut('export')} aria-label="导出报告" />
+          <button className="reference-hotspot face" type="button" onClick={() => handleHomeShortcut('face')} aria-label="人脸分析" />
+          <button className="reference-hotspot retouch" type="button" onClick={() => handleHomeShortcut('retouch')} aria-label="修图建议" />
+          <button className="reference-hotspot color" type="button" onClick={() => handleHomeShortcut('color')} aria-label="批量调色" />
+          <button className="reference-hotspot watermark" type="button" onClick={() => handleHomeShortcut('watermark')} aria-label="批量水印" />
+          <button className="reference-hotspot report" type="button" onClick={() => handleHomeShortcut('export')} aria-label="导出报告" />
         </div>
       </section>
 
       <section className="reference-mobile-actions" aria-label="移动端快捷操作">
         <button type="button" onClick={() => folderInputRef.current?.click()}><Upload aria-hidden="true" size={18} />上传照片 / 文件夹</button>
-        <button type="button" onClick={() => void loadDemoPortraits()}><Image aria-hidden="true" size={18} />加载示例人像</button>
-        <button type="button" onClick={() => focusFilter('retouch-ready')}><Wrench aria-hidden="true" size={18} />修图建议</button>
-        <button type="button" onClick={() => setAssetViewMode('processed')}><Palette aria-hidden="true" size={18} />批量调色</button>
+        <button type="button" onClick={() => void loadDemoAndEnterWorkspace()}><Image aria-hidden="true" size={18} />加载示例人像</button>
+        <button type="button" onClick={() => handleHomeShortcut('retouch')}><Wrench aria-hidden="true" size={18} />修图建议</button>
+        <button type="button" onClick={() => handleHomeShortcut('color')}><Palette aria-hidden="true" size={18} />批量调色</button>
       </section>
 
       <section className="workspace-header">
@@ -1408,7 +1445,7 @@ function App() {
         <div><CheckCircle2 aria-hidden="true" size={27} /><span><strong>隐私安全保障</strong><small>本地运行，照片不上传，守护您的隐私安全</small></span></div>
       </section>
 
-      <section className="results-layout">
+      <section className="results-layout" ref={resultsLayoutRef}>
         <div className="photo-list-region">
           <div className="toolbar">
             <div className="filter-tabs" role="tablist" aria-label="筛选照片">
@@ -1472,7 +1509,7 @@ function App() {
             </div>
           </div>
 
-          <div className="quick-export-bar">
+          <div className="quick-export-bar" ref={exportBarRef}>
             <div className="quick-export-modes">
               <strong>当前查看版本</strong>
               <div className="segmented-row compact">
@@ -1626,7 +1663,7 @@ function App() {
           )}
         </div>
 
-        <aside className="detail-panel" aria-label="照片分析详情">
+        <aside className="detail-panel" ref={detailPanelRef} aria-label="照片分析详情">
           {selectedPhoto ? (
             <>
               <div className="detail-media">

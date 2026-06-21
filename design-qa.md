@@ -23,6 +23,8 @@ Focused region comparison was not required because the source asset is the rende
 - Image quality and assets: the reference source and deployed asset have matching SHA-256 values.
 - Interaction: transparent desktop hotspots and mobile action buttons connect to existing upload, sample portrait, face-analysis, retouch, colour, watermark, and export flows.
 - Functional check: clicking mobile `加载示例人像` loaded two sample photos and revealed analysis, score-range, retouch, colour, watermark, and export controls in the existing workspace.
+- Shortcut navigation check: clicking `批量调色` scrolls to the real workspace and selects the colour-copy mode; clicking `加载示例人像` loads two photos and scrolls to the populated screening and portrait-detail workspace.
+- Background continuation check: the lower workspace uses the same approved source image under a low-contrast glass overlay; the desktop source surface itself remains unchanged.
 - Console check: no JavaScript errors were reported. The logged TensorFlow Lite XNNPACK delegate line is an informational MediaPipe CPU-initialization message categorized by the browser as an error-level console entry.
 
 ## Intentional Mobile Difference

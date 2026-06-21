@@ -1941,6 +1941,12 @@ img {
 
 .results-layout {
   margin: 22px clamp(16px, 3vw, 34px) 0;
+  border: 1px solid rgba(172, 216, 243, 0.18);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(4, 19, 33, 0.72), rgba(5, 22, 38, 0.88)),
+    url("/portfolio/photography-glass-reference.png") center bottom / cover fixed;
+  padding: clamp(14px, 2vw, 24px);
 }
 
 @media (max-width: 1160px) {
@@ -2183,5 +2189,7 @@ img {
 
   .results-layout {
     margin: 16px 14px 0;
+    border-radius: 18px;
+    padding: 12px;
   }
 }
