@@ -27,6 +27,17 @@ Focused region comparison was not required because the source asset is the rende
 - Background continuation check: the lower workspace uses the same approved source image under a low-contrast glass overlay; the desktop source surface itself remains unchanged.
 - Console check: no JavaScript errors were reported. The logged TensorFlow Lite XNNPACK delegate line is an informational MediaPipe CPU-initialization message categorized by the browser as an error-level console entry.
 
+## Latest Interaction Pass
+
+- The first-view source image remains `public/portfolio/photography-glass-reference.png` with SHA-256 `5900D85E3CC6EDBE4B4434B1D02FB68A8BD0E453984084282A9687F5DE261071`; the background, portrait, source typography, and base colour treatment are not replaced.
+- Desktop capture: `output/playwright/latest-desktop.png` at `1440 x 1024`. The right overview receives a transparent brightness overlay, while the live score ring and seven-day curve are rendered as interactive DOM above the approved reference.
+- Score history: completed photo assessments are stored in browser local storage, deduplicated by photo ID, aggregated by calendar date for the latest seven days, exportable as JSON, and removable from the local settings drawer. With no record, the source-compatible sample curve remains visible.
+- Real-flow check: loading the two example portraits changed the label from `本地示例` to `本地记录`, generated a live score of `79`, and made the settings drawer report `已记录 2 张已分析照片`.
+- Navigation check: the source buttons, top navigation, and mobile shortcut buttons are real controls. Desktop `工具箱` moved into the actual image-processing workspace; mobile `批量调色` moved into the corresponding workspace.
+- Identity and interaction: the visible top-right profile control and settings drawer use `麦田里的修猫`; settings can independently disable score/trend animation and glass edge effects.
+- Mobile capture: `output/playwright/latest-mobile-fixed.png` at `390 x 844`. The approved first-view image remains a compact preview, while desktop-only data overlays are hidden to prevent overlap and the four large touch buttons remain available directly below it.
+- Motion: the score ring counts from zero to the live score, the trend line draws left-to-right, and the enhanced glass regions receive a restrained edge sheen when the effect setting is enabled. Reduced-motion preferences are still honoured.
+
 ## Intentional Mobile Difference
 
 The source composition remains as a scaled preview on phones. A four-button touch dock is added below it because the original desktop button hit areas become too small for reliable phone use. The approved source pixels themselves remain unchanged.

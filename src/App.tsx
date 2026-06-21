@@ -20,6 +20,14 @@ import {
 import { ChangeEvent, CSSProperties, DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { generateColorAdjustedPhoto } from './lib/batchColoring';
 import { generateWatermarkedPhoto, type WatermarkPosition } from './lib/batchWatermarking';
+import {
+  buildSevenDayTrend,
+  clearAnalysisHistory,
+  loadAnalysisHistory,
+  recordAnalysisHistory,
+  saveAnalysisHistory,
+  type AnalysisHistoryRecord,
+} from './lib/analysisHistory';
 import { buildColorAdjustmentPlan, buildColorAdjustmentSettings, COLOR_PRESETS, getPresetById } from './lib/colorPresets';
 import { FACE_CAPTURE_GUIDE, FACE_REFERENCE_RANGES, isAboveRange, isBelowRange, isWithinRange } from './lib/faceReference';
 import { warmupFaceLandmarker } from './lib/faceSignals';
@@ -96,6 +104,29 @@ const ASSET_VIEW_META: Record<AssetViewMode, { label: string; exportLabel: strin
 };
 
 const REFERENCE_DASHBOARD_IMAGE = `${import.meta.env.BASE_URL}portfolio/photography-glass-reference.png`;
+const UI_SETTINGS_STORAGE_KEY = 'ai-photo-culling-ui-settings-v1';
+
+type UiSettings = {
+  animationsEnabled: boolean;
+  edgeEffectsEnabled: boolean;
+};
+
+function loadUiSettings(): UiSettings {
+  if (typeof window === 'undefined') return { animationsEnabled: true, edgeEffectsEnabled: true };
+
+  try {
+    const storedValue: unknown = JSON.parse(window.localStorage.getItem(UI_SETTINGS_STORAGE_KEY) ?? '{}');
+    if (!storedValue || typeof storedValue !== 'object') return { animationsEnabled: true, edgeEffectsEnabled: true };
+
+    const settings = storedValue as Partial<UiSettings>;
+    return {
+      animationsEnabled: settings.animationsEnabled !== false,
+      edgeEffectsEnabled: settings.edgeEffectsEnabled !== false,
+    };
+  } catch {
+    return { animationsEnabled: true, edgeEffectsEnabled: true };
+  }
+}
 
 const DEMO_PORTRAITS: DemoSample[] = [
   { fileName: '示例-人像-1.jpeg', url: '/portfolio/camera-girl.jpeg' },
@@ -718,6 +749,10 @@ function App() {
   const [watermarkText, setWatermarkText] = useState('AI 摄影筛片');
   const [watermarkPosition, setWatermarkPosition] = useState<WatermarkPosition>('bottom-right');
   const [watermarkOpacity, setWatermarkOpacity] = useState(0.22);
+  const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryRecord[]>(() => loadAnalysisHistory());
+  const [uiSettings, setUiSettings] = useState<UiSettings>(() => loadUiSettings());
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [animatedScore, setAnimatedScore] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -746,6 +781,10 @@ function App() {
     setActiveDetailSection('portrait');
     setUnlockedDetailIndex(DETAIL_SECTION_ORDER.length - 1);
   }, [selectedPhotoId]);
+
+  useEffect(() => {
+    window.localStorage.setItem(UI_SETTINGS_STORAGE_KEY, JSON.stringify(uiSettings));
+  }, [uiSettings]);
 
   const completedAssessments = photos
     .map((photo) => photo.assessment)
@@ -801,6 +840,63 @@ function App() {
     processedPendingCount,
     watermarkPendingCount,
   });
+  const newHistoryRecords = photos.flatMap((photo) => {
+    if (photo.status !== 'done' || !photo.assessment) return [];
+
+    return [
+      {
+        photoId: photo.id,
+        recordedAt: new Date().toISOString(),
+        score: photo.assessment.score,
+        decision: photo.assessment.status,
+      },
+    ];
+  });
+
+  useEffect(() => {
+    if (newHistoryRecords.length === 0) return;
+
+    setAnalysisHistory((currentHistory) => {
+      const nextHistory = recordAnalysisHistory(currentHistory, newHistoryRecords);
+      const didChange = nextHistory.length !== currentHistory.length || nextHistory.some((record, index) => record.photoId !== currentHistory[index]?.photoId);
+
+      if (!didChange) return currentHistory;
+
+      saveAnalysisHistory(nextHistory);
+      return nextHistory;
+    });
+  }, [photos]);
+
+  const sevenDayTrend = useMemo(() => buildSevenDayTrend(analysisHistory), [analysisHistory]);
+  const hasRecordedHistory = sevenDayTrend.some((point) => point.count > 0);
+  const visibleTrend = hasRecordedHistory
+    ? sevenDayTrend
+    : [64, 72, 69, 58, 62, 76, 82].map((averageScore, index) => ({ day: sevenDayTrend[index].day, averageScore, count: 0 }));
+  const liveScore = summary.totalCount > 0 ? summary.averageScore : visibleTrend[visibleTrend.length - 1].averageScore;
+
+  useEffect(() => {
+    if (!uiSettings.animationsEnabled) {
+      setAnimatedScore(liveScore);
+      return;
+    }
+
+    const animationDuration = 760;
+    const startedAt = performance.now();
+    let animationFrame = 0;
+
+    const advanceScore = (currentTime: number) => {
+      const progress = Math.min((currentTime - startedAt) / animationDuration, 1);
+      const easedProgress = 1 - Math.pow(1 - progress, 3);
+      setAnimatedScore(Math.round(liveScore * easedProgress));
+
+      if (progress < 1) {
+        animationFrame = window.requestAnimationFrame(advanceScore);
+      }
+    };
+
+    animationFrame = window.requestAnimationFrame(advanceScore);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [liveScore, uiSettings.animationsEnabled]);
 
   function openDetailSection(sectionKey: DetailSectionKey) {
     const nextIndex = DETAIL_SECTION_ORDER.indexOf(sectionKey);
@@ -1205,6 +1301,57 @@ function App() {
     scrollToWorkspace('results');
   }
 
+  function handleTopNavigation(target: 'workspace' | 'album' | 'face' | 'tools' | 'settings') {
+    if (target === 'workspace') {
+      window.scrollTo({ behavior: 'smooth', top: 0 });
+      return;
+    }
+
+    if (target === 'album') {
+      scrollToWorkspace('results');
+      return;
+    }
+
+    if (target === 'face') {
+      handleHomeShortcut('face');
+      return;
+    }
+
+    if (target === 'tools') {
+      scrollToWorkspace('export');
+      return;
+    }
+
+    setIsSettingsOpen(true);
+  }
+
+  function downloadHistory() {
+    const content = JSON.stringify(analysisHistory, null, 2);
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'photo-analysis-history.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function resetHistory() {
+    clearAnalysisHistory();
+    setAnalysisHistory([]);
+  }
+
+  const trendChartWidth = 320;
+  const trendChartHeight = 112;
+  const trendChartPadding = 12;
+  const trendPoints = visibleTrend
+    .map((point, index) => {
+      const x = trendChartPadding + (index * (trendChartWidth - trendChartPadding * 2)) / (visibleTrend.length - 1);
+      const y = trendChartHeight - trendChartPadding - (point.averageScore / 100) * (trendChartHeight - trendChartPadding * 2);
+      return `${x},${y}`;
+    })
+    .join(' ');
+
   function isDetailSectionVisible(sectionKey: DetailSectionKey) {
     return DETAIL_SECTION_ORDER.indexOf(sectionKey) <= unlockedDetailIndex;
   }
@@ -1318,7 +1465,7 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="reference-dashboard" aria-label="AI 摄影筛片助手工作台">
+      <section className={`reference-dashboard ${uiSettings.edgeEffectsEnabled ? 'edge-effects-enabled' : ''}`} aria-label="AI 摄影筛片助手工作台">
         <img src={REFERENCE_DASHBOARD_IMAGE} alt="AI 摄影筛片助手工作台参考界面" />
         <div className="reference-hotspots">
           <button className="reference-hotspot upload" type="button" onClick={() => folderInputRef.current?.click()} aria-label="上传照片或文件夹" />
@@ -1329,8 +1476,62 @@ function App() {
           <button className="reference-hotspot color" type="button" onClick={() => handleHomeShortcut('color')} aria-label="批量调色" />
           <button className="reference-hotspot watermark" type="button" onClick={() => handleHomeShortcut('watermark')} aria-label="批量水印" />
           <button className="reference-hotspot report" type="button" onClick={() => handleHomeShortcut('export')} aria-label="导出报告" />
+          <button className="reference-hotspot nav-workspace" type="button" onClick={() => handleTopNavigation('workspace')} aria-label="工作台" />
+          <button className="reference-hotspot nav-album" type="button" onClick={() => handleTopNavigation('album')} aria-label="相册管理" />
+          <button className="reference-hotspot nav-face" type="button" onClick={() => handleTopNavigation('face')} aria-label="人脸分析" />
+          <button className="reference-hotspot nav-tools" type="button" onClick={() => handleTopNavigation('tools')} aria-label="工具箱" />
+          <button className="reference-hotspot nav-settings" type="button" onClick={() => handleTopNavigation('settings')} aria-label="设置" />
         </div>
+        <div className={`reference-right-brightness ${uiSettings.edgeEffectsEnabled ? 'has-edge-effects' : ''}`} aria-hidden="true" />
+        <button className="creator-profile" type="button" onClick={() => setIsSettingsOpen(true)} aria-label="打开麦田里的修猫的设置">
+          <span>麦</span>
+          <strong>麦田里的修猫</strong>
+        </button>
+        <section className={`live-score-layer ${uiSettings.animationsEnabled ? 'is-animated' : ''}`} aria-label="本地分析评分趋势">
+          <div className="live-score-ring" style={{ '--score-angle': `${animatedScore * 3.6}deg` } as CSSProperties}>
+            <strong>{animatedScore}</strong>
+            <span>综合评分</span>
+          </div>
+          <div className="live-trend-chart">
+            <div className="live-trend-heading">
+              <strong>评分趋势（近7天）</strong>
+              <span>{hasRecordedHistory ? '本地记录' : '本地示例'}</span>
+            </div>
+            <svg viewBox={`0 0 ${trendChartWidth} ${trendChartHeight}`} role="img" aria-label="近七天评分曲线">
+              <polyline className="trend-fill" points={`${trendChartPadding},${trendChartHeight - trendChartPadding} ${trendPoints} ${trendChartWidth - trendChartPadding},${trendChartHeight - trendChartPadding}`} />
+              <polyline className="trend-line" points={trendPoints} />
+              {visibleTrend.map((point, index) => {
+                const [x, y] = trendPoints.split(' ')[index].split(',');
+                return <circle key={point.day} className="trend-node" cx={x} cy={y} r="3.5" />;
+              })}
+            </svg>
+            <div className="trend-day-labels">
+              {visibleTrend.map((point) => <span key={point.day}>{point.day}</span>)}
+            </div>
+          </div>
+        </section>
+        <div className="reference-strip-mask" aria-hidden="true" />
+        <section className="compact-feature-strip" aria-label="核心能力">
+          <div><Aperture aria-hidden="true" size={18} /><span><strong>多维分析</strong><small>构图、光影、表情</small></span></div>
+          <div><ScanFace aria-hidden="true" size={18} /><span><strong>修图建议</strong><small>单人脸型与塑形</small></span></div>
+          <div><Palette aria-hidden="true" size={18} /><span><strong>批量处理</strong><small>调色、水印、导出</small></span></div>
+          <div><CheckCircle2 aria-hidden="true" size={18} /><span><strong>本地隐私</strong><small>历史只保存在设备</small></span></div>
+        </section>
       </section>
+
+      {isSettingsOpen ? (
+        <div className="settings-backdrop" role="presentation" onMouseDown={() => setIsSettingsOpen(false)}>
+          <section className="settings-drawer" role="dialog" aria-modal="true" aria-label="本地设置" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="settings-heading">
+              <div><span>麦田里的修猫</span><strong>本地设置</strong></div>
+              <button type="button" onClick={() => setIsSettingsOpen(false)} aria-label="关闭设置">×</button>
+            </div>
+            <label className="settings-toggle"><span><strong>评分与曲线动效</strong><small>开启评分环填充和趋势绘制</small></span><input type="checkbox" checked={uiSettings.animationsEnabled} onChange={(event) => setUiSettings((current) => ({ ...current, animationsEnabled: event.target.checked }))} /></label>
+            <label className="settings-toggle"><span><strong>玻璃边缘光效</strong><small>点击与悬停时显示柔和扫光</small></span><input type="checkbox" checked={uiSettings.edgeEffectsEnabled} onChange={(event) => setUiSettings((current) => ({ ...current, edgeEffectsEnabled: event.target.checked }))} /></label>
+            <div className="settings-history"><strong>本地历史</strong><span>已记录 {analysisHistory.length} 张已分析照片，仅保存在当前浏览器。</span><div><button type="button" onClick={downloadHistory} disabled={analysisHistory.length === 0}>导出 JSON</button><button type="button" onClick={resetHistory} disabled={analysisHistory.length === 0}>清空历史</button></div></div>
+          </section>
+        </div>
+      ) : null}
 
       <section className="reference-mobile-actions" aria-label="移动端快捷操作">
         <button type="button" onClick={() => folderInputRef.current?.click()}><Upload aria-hidden="true" size={18} />上传照片 / 文件夹</button>
