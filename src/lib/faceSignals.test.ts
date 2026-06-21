@@ -38,10 +38,16 @@ describe('determineEyeStatus', () => {
 
 describe('extractFaceAnalysis', () => {
   it('能从 Face Landmarker 结果里提取人脸数量和闭眼状态', () => {
+    const primaryFace = Array.from({ length: 300 }, (_, index) => ({
+      x: 0.26 + (index % 2) * 0.22,
+      y: 0.18 + (index % 3) * 0.24,
+      z: 0,
+    }));
+
     const result = extractFaceAnalysis(
       {
         faceLandmarks: [
-          Array.from({ length: 300 }, () => ({ x: 0.4, y: 0.4, z: 0 })),
+          primaryFace,
           [{ x: 0.5, y: 0.6, z: 0 }],
         ],
         faceBlendshapes: [
@@ -56,8 +62,10 @@ describe('extractFaceAnalysis', () => {
       'upper_focus',
     );
 
-    expect(result.faceCount).toBe(2);
+    expect(result.faceCount).toBe(1);
     expect(result.eyeStatus).toBe('closed_risk');
+    expect(result.expressionBalance).toBe('needs_review');
+    expect(result.retouchReadiness).toBe('hold');
     expect(result.detectionMode).toBe('upper_focus');
   });
 
@@ -83,5 +91,60 @@ describe('extractFaceAnalysis', () => {
     expect(result.faceTopMargin).toBeCloseTo(0.12, 2);
     expect(result.faceShapeTendency).toBe('long');
     expect(result.faceTiltDegrees).toBeGreaterThan(0);
+  });
+
+  it('会提取表情稳定度和精修准备度', () => {
+    const landmarks = Array.from({ length: 300 }, (_, index) => ({
+      x: 0.3 + (index % 2) * 0.24,
+      y: 0.16 + (index % 3) * 0.24,
+      z: 0,
+    }));
+
+    const result = extractFaceAnalysis(
+      {
+        faceLandmarks: [landmarks],
+        faceBlendshapes: [
+          {
+            categories: [
+              { categoryName: 'eyeBlinkLeft', score: 0.12 },
+              { categoryName: 'eyeBlinkRight', score: 0.16 },
+              { categoryName: 'mouthSmileLeft', score: 0.32 },
+              { categoryName: 'mouthSmileRight', score: 0.3 },
+              { categoryName: 'jawOpen', score: 0.14 },
+            ],
+          },
+        ],
+      },
+      'full_frame',
+    );
+
+    expect(result.expressionBalance).toBe('stable');
+    expect(result.retouchReadiness).toBe('ready');
+    expect(result.eyeBlinkDiffScore).toBeCloseTo(0.04, 2);
+    expect(result.smileDiffScore).toBeCloseTo(0.02, 2);
+  });
+
+  it('即使存在其他脸候选，也会优先聚焦主脸做单人分析', () => {
+    const primaryFace = Array.from({ length: 300 }, (_, index) => ({
+      x: 0.18 + (index % 2) * 0.22,
+      y: 0.18 + (index % 3) * 0.2,
+      z: 0,
+    }));
+    const secondaryFace = Array.from({ length: 300 }, (_, index) => ({
+      x: 0.56 + (index % 2) * 0.2,
+      y: 0.22 + (index % 3) * 0.18,
+      z: 0,
+    }));
+
+    const result = extractFaceAnalysis(
+      {
+        faceLandmarks: [primaryFace, secondaryFace],
+        faceBlendshapes: [],
+      },
+      'center_focus',
+    );
+
+    expect(result.faceCount).toBe(1);
+    expect(result.detectionMode).toBe('center_focus');
   });
 });

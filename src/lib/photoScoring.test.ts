@@ -1,192 +1,121 @@
 import { describe, expect, it } from 'vitest';
-import { describeFaceDetectionMode, describeFaceShapeTendency, scorePhoto, summarizeAssessments } from './photoScoring';
+import { describeFaceDetectionMode, scorePhoto, type RawPhotoMetrics } from './photoScoring';
+import { buildColorAdjustmentPlan } from './colorPresets';
+
+function createBaseMetrics(overrides: Partial<RawPhotoMetrics> = {}): RawPhotoMetrics {
+  return {
+    width: 2400,
+    height: 3200,
+    brightness: 128,
+    darkPixelRatio: 0.12,
+    brightPixelRatio: 0.08,
+    contrast: 42,
+    tiltDegrees: 0.4,
+    visualWeightX: 0.5,
+    visualWeightY: 0.48,
+    centerBrightness: 132,
+    edgeBrightness: 120,
+    faceCount: 1,
+    eyeStatus: 'open',
+    expressionBalance: 'stable',
+    retouchReadiness: 'ready',
+    faceDetectionMode: 'full_frame',
+    faceSizeRatio: 0.16,
+    faceTopMargin: 0.1,
+    faceBottomMargin: 0.12,
+    faceLeftMargin: 0.12,
+    faceRightMargin: 0.12,
+    faceTiltDegrees: 1.4,
+    faceShapeTendency: 'balanced',
+    faceWidthTendency: 'balanced',
+    faceStructureConfidence: 'high',
+    upperThirdRatio: 0.33,
+    midThirdRatio: 0.34,
+    lowerThirdRatio: 0.33,
+    eyeGapRatio: 1.08,
+    jawToCheekRatio: 0.8,
+    leftEyeBlinkScore: 0.1,
+    rightEyeBlinkScore: 0.12,
+    eyeBlinkDiffScore: 0.02,
+    leftSmileScore: 0.22,
+    rightSmileScore: 0.2,
+    smileDiffScore: 0.02,
+    mouthOpenScore: 0.12,
+    ...overrides,
+  };
+}
 
 describe('scorePhoto', () => {
-  it('从构图、光影、曝光、暗部、人物、比例六个维度评价照片', () => {
-    const result = scorePhoto({
-      width: 3600,
-      height: 2400,
-      brightness: 132,
-      darkPixelRatio: 0.08,
-      brightPixelRatio: 0.04,
-      contrast: 58,
-      tiltDegrees: 0.5,
-      visualWeightX: 0.48,
-      visualWeightY: 0.46,
-      centerBrightness: 142,
-      edgeBrightness: 116,
-      faceCount: 1,
-      eyeStatus: 'open',
-      faceDetectionMode: 'full_frame',
-      faceSizeRatio: 0.13,
-      faceTopMargin: 0.11,
-      faceBottomMargin: 0.13,
-      faceLeftMargin: 0.18,
-      faceRightMargin: 0.2,
-      faceTiltDegrees: 1.6,
-      faceShapeTendency: 'balanced',
-    });
+  it('marks multi-face portraits as review or reject because this version is single-person only', () => {
+    const assessment = scorePhoto(
+      createBaseMetrics({
+        faceCount: 2,
+        brightPixelRatio: 0.18,
+      }),
+    );
 
-    expect(result.status).toBe('keep');
-    expect(result.dimensionAssessments).toHaveLength(6);
-    expect(result.dimensionAssessments.map((item) => item.key)).toEqual([
-      'composition',
-      'lighting',
-      'exposure',
-      'shadow',
-      'portrait',
-      'ratio',
-    ]);
-    expect(result.suggestions.join('')).toContain('可以优先保留');
+    expect(assessment.score).toBeLessThan(85);
+    expect(assessment.suggestions.join(' ')).toContain('单人');
   });
 
-  it('不再因为清晰度低而扣分，清晰度不属于评分维度', () => {
-    const result = scorePhoto({
-      width: 3000,
-      height: 2000,
-      brightness: 128,
-      darkPixelRatio: 0.06,
-      brightPixelRatio: 0.04,
-      contrast: 52,
-      tiltDegrees: 0.3,
-      visualWeightX: 0.5,
-      visualWeightY: 0.5,
-      centerBrightness: 138,
-      edgeBrightness: 120,
-      faceCount: 1,
-      eyeStatus: 'open',
-      faceDetectionMode: 'full_frame',
-      faceSizeRatio: 0.14,
-      faceTopMargin: 0.09,
-      faceBottomMargin: 0.12,
-      faceLeftMargin: 0.16,
-      faceRightMargin: 0.18,
-      faceTiltDegrees: 0.8,
-      faceShapeTendency: 'balanced',
-    });
+  it('penalizes closed-eye risk heavily', () => {
+    const assessment = scorePhoto(
+      createBaseMetrics({
+        eyeStatus: 'closed_risk',
+      }),
+    );
 
-    expect(result.badges.join('')).not.toContain('模糊');
-    expect(result.dimensionAssessments.some((item) => item.label.includes('清晰'))).toBe(false);
-    expect(result.status).toBe('keep');
+    expect(assessment.status).toBe('review');
+    expect(assessment.badges).toContain('人物需复核');
   });
 
-  it('构图偏边、过曝、暗部死黑、闭眼风险会给出具体改进建议', () => {
-    const result = scorePhoto({
-      width: 4200,
-      height: 1800,
-      brightness: 218,
-      darkPixelRatio: 0.38,
-      brightPixelRatio: 0.31,
-      contrast: 24,
-      tiltDegrees: 3.8,
-      visualWeightX: 0.83,
-      visualWeightY: 0.18,
-      centerBrightness: 86,
-      edgeBrightness: 166,
-      faceCount: 1,
-      eyeStatus: 'closed_risk',
-      faceDetectionMode: 'center_focus',
-      faceSizeRatio: 0.03,
-      faceTopMargin: 0.02,
-      faceBottomMargin: 0.018,
-      faceLeftMargin: 0.015,
-      faceRightMargin: 0.19,
-      faceTiltDegrees: 8.2,
-      faceShapeTendency: 'long',
-    });
+  it('explains reliable face-detection conditions when no face is found', () => {
+    const assessment = scorePhoto(
+      createBaseMetrics({
+        faceCount: 0,
+        faceDetectionMode: 'not_detected',
+      }),
+    );
 
-    const adviceText = result.suggestions.join('\n');
-
-    expect(result.status).toBe('reject');
-    expect(result.badges).toContain('构图偏边');
-    expect(result.badges).toContain('高光过曝');
-    expect(result.badges).toContain('暗部死黑');
-    expect(result.badges).toContain('闭眼风险');
-    expect(result.badges).toContain('比例不协调');
-    expect(adviceText).toContain('先把画面拉正');
-    expect(adviceText).toContain('降低高光');
-    expect(adviceText).toContain('提升阴影');
-    expect(adviceText).toContain('闭眼');
-    expect(adviceText).toContain('裁切');
-    expect(adviceText).toContain('局部补检');
-    expect(adviceText).toContain('偏长脸倾向');
+    expect(assessment.suggestions.join(' ')).toContain('12% - 15%');
+    expect(assessment.suggestions.join(' ')).toContain('30°');
   });
 
-  it('未识别到人脸时，会明确提醒人工复核和识别条件', () => {
-    const result = scorePhoto({
-      width: 4200,
-      height: 2800,
-      brightness: 140,
-      darkPixelRatio: 0.12,
-      brightPixelRatio: 0.08,
-      contrast: 40,
-      tiltDegrees: 0.6,
-      visualWeightX: 0.5,
-      visualWeightY: 0.44,
-      centerBrightness: 145,
-      edgeBrightness: 118,
-      faceCount: 0,
-      eyeStatus: 'unknown',
-      faceDetectionMode: 'not_detected',
-      faceShapeTendency: 'unknown',
-    });
+  it('downgrades portraits with expression asymmetry before retouching', () => {
+    const assessment = scorePhoto(
+      createBaseMetrics({
+        expressionBalance: 'needs_review',
+        retouchReadiness: 'hold',
+        eyeBlinkDiffScore: 0.39,
+        smileDiffScore: 0.31,
+        mouthOpenScore: 0.48,
+      }),
+    );
 
-    const portraitAdvice = result.dimensionAssessments.find((item) => item.key === 'portrait');
+    const portraitDimension = assessment.dimensionAssessments.find((dimension) => dimension.key === 'portrait');
 
-    expect(portraitAdvice?.suggestions.join('')).toContain('整图、上半区和中心区域');
-    expect(portraitAdvice?.suggestions.join('')).toContain('12% 到 15%');
+    expect(portraitDimension?.score).toBeLessThan(80);
+    expect(assessment.suggestions.join(' ')).toContain('表情');
+    expect(assessment.suggestions.join(' ')).toContain('精修');
+  });
+});
+
+describe('buildColorAdjustmentPlan', () => {
+  it('recommends highlight recovery for bright portraits', () => {
+    const plan = buildColorAdjustmentPlan(
+      createBaseMetrics({
+        brightness: 216,
+        brightPixelRatio: 0.28,
+      }),
+    );
+
+    expect(plan.exposureCompensation).toContain('-0.15');
+    expect(plan.recommendedPresetIds[0]).toBe('pro-neg-std');
   });
 });
 
 describe('describeFaceDetectionMode', () => {
-  it('输出面向用户的人脸识别路径说明', () => {
-    expect(describeFaceDetectionMode('full_frame')).toBe('整张画面直接识别');
-    expect(describeFaceDetectionMode('upper_focus')).toBe('上半区补检识别');
-  });
-});
-
-describe('describeFaceShapeTendency', () => {
-  it('输出面向用户的脸型倾向说明', () => {
-    expect(describeFaceShapeTendency('round')).toBe('偏圆脸倾向');
-    expect(describeFaceShapeTendency('balanced')).toBe('比例较均衡');
-  });
-});
-
-describe('summarizeAssessments', () => {
-  it('统计保留、待修、淘汰数量和平均综合分', () => {
-    const summary = summarizeAssessments([
-      {
-        status: 'keep',
-        score: 90,
-        badges: [],
-        suggestions: [],
-        dimensionAssessments: [],
-        severeIssueCount: 0,
-        warningIssueCount: 0,
-      },
-      {
-        status: 'review',
-        score: 72,
-        badges: ['构图偏边'],
-        suggestions: [],
-        dimensionAssessments: [],
-        severeIssueCount: 1,
-        warningIssueCount: 0,
-      },
-      {
-        status: 'reject',
-        score: 43,
-        badges: ['闭眼风险'],
-        suggestions: [],
-        dimensionAssessments: [],
-        severeIssueCount: 3,
-        warningIssueCount: 1,
-      },
-    ]);
-
-    expect(summary.keepCount).toBe(1);
-    expect(summary.reviewCount).toBe(1);
-    expect(summary.rejectCount).toBe(1);
-    expect(summary.averageScore).toBe(68);
+  it('supports the tight center retry label', () => {
+    expect(describeFaceDetectionMode('tight_center')).toBe('单人近景补检识别');
   });
 });

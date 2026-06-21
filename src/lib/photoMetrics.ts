@@ -27,12 +27,15 @@ type FaceDetectionAttempt = {
   widthRatio: number;
   heightRatio: number;
   maxEdge: number;
+  minEdge?: number;
 };
 
 const DARK_PIXEL_LIMIT = 35;
 const BRIGHT_PIXEL_LIMIT = 235;
 const MAX_SAMPLE_EDGE = 900;
 const MAX_FACE_SAMPLE_EDGE = 1600;
+const MIN_FACE_RETRY_EDGE = 960;
+const MAX_FACE_UPSCALE_FACTOR = 2.4;
 
 function getLuminance(rgbaData: Uint8ClampedArray, pixelIndex: number) {
   const baseIndex = pixelIndex * 4;
@@ -149,8 +152,15 @@ function createSampleCanvas(
   cropWidth: number,
   cropHeight: number,
   maxEdge: number,
+  minEdge = 0,
 ) {
-  const scale = Math.min(1, maxEdge / Math.max(cropWidth, cropHeight));
+  const longerEdge = Math.max(cropWidth, cropHeight);
+  let scale = Math.min(1, maxEdge / longerEdge);
+
+  if (longerEdge < minEdge) {
+    scale = Math.min(MAX_FACE_UPSCALE_FACTOR, minEdge / longerEdge);
+  }
+
   const targetWidth = Math.max(1, Math.round(cropWidth * scale));
   const targetHeight = Math.max(1, Math.round(cropHeight * scale));
   const canvas = document.createElement('canvas');
@@ -179,19 +189,57 @@ async function detectFaceSignalsWithRetries(imageBitmap: ImageBitmap) {
     },
     {
       detectionMode: 'upper_focus',
-      leftRatio: 0.16,
+      leftRatio: 0.12,
       topRatio: 0,
-      widthRatio: 0.68,
-      heightRatio: 0.72,
+      widthRatio: 0.76,
+      heightRatio: 0.78,
       maxEdge: MAX_FACE_SAMPLE_EDGE,
+      minEdge: MIN_FACE_RETRY_EDGE,
     },
     {
       detectionMode: 'center_focus',
-      leftRatio: 0.2,
-      topRatio: 0.12,
-      widthRatio: 0.6,
-      heightRatio: 0.68,
+      leftRatio: 0.16,
+      topRatio: 0.08,
+      widthRatio: 0.68,
+      heightRatio: 0.76,
       maxEdge: MAX_FACE_SAMPLE_EDGE,
+      minEdge: MIN_FACE_RETRY_EDGE,
+    },
+    {
+      detectionMode: 'tight_center',
+      leftRatio: 0.24,
+      topRatio: 0.04,
+      widthRatio: 0.52,
+      heightRatio: 0.78,
+      maxEdge: MAX_FACE_SAMPLE_EDGE,
+      minEdge: 1120,
+    },
+    {
+      detectionMode: 'center_focus',
+      leftRatio: 0.04,
+      topRatio: 0.04,
+      widthRatio: 0.62,
+      heightRatio: 0.82,
+      maxEdge: MAX_FACE_SAMPLE_EDGE,
+      minEdge: 1120,
+    },
+    {
+      detectionMode: 'center_focus',
+      leftRatio: 0.34,
+      topRatio: 0.04,
+      widthRatio: 0.62,
+      heightRatio: 0.82,
+      maxEdge: MAX_FACE_SAMPLE_EDGE,
+      minEdge: 1120,
+    },
+    {
+      detectionMode: 'tight_center',
+      leftRatio: 0.28,
+      topRatio: 0.08,
+      widthRatio: 0.44,
+      heightRatio: 0.64,
+      maxEdge: MAX_FACE_SAMPLE_EDGE,
+      minEdge: 1280,
     },
   ];
 
@@ -207,6 +255,7 @@ async function detectFaceSignalsWithRetries(imageBitmap: ImageBitmap) {
       cropWidth,
       cropHeight,
       attempt.maxEdge,
+      attempt.minEdge,
     );
     const faceSignals = await detectFaceSignalsWithModel(canvas, attempt.detectionMode);
 
@@ -218,20 +267,22 @@ async function detectFaceSignalsWithRetries(imageBitmap: ImageBitmap) {
   return {
     faceCount: 0,
     eyeStatus: 'unknown' as const,
+    expressionBalance: 'unknown' as const,
+    retouchReadiness: 'hold' as const,
     detectionMode: 'not_detected' as const,
   };
 }
 
 async function detectFaceSignalsWithNativeApi(
   imageBitmap: ImageBitmap,
-): Promise<{ faceCount: number; eyeStatus: EyeStatus; detectionMode: FaceDetectionMode }> {
+): Promise<{ faceCount: number; eyeStatus: EyeStatus; expressionBalance?: 'unknown'; retouchReadiness?: 'hold'; detectionMode: FaceDetectionMode }> {
   type FaceDetectorConstructor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => {
     detect(image: ImageBitmap): Promise<unknown[]>;
   };
   const maybeWindow = window as typeof window & { FaceDetector?: FaceDetectorConstructor };
 
   if (!maybeWindow.FaceDetector) {
-    return { faceCount: 0, eyeStatus: 'unknown', detectionMode: 'not_detected' };
+    return { faceCount: 0, eyeStatus: 'unknown', expressionBalance: 'unknown', retouchReadiness: 'hold', detectionMode: 'not_detected' };
   }
 
   try {
@@ -239,12 +290,14 @@ async function detectFaceSignalsWithNativeApi(
     const faces = await detector.detect(imageBitmap);
 
     return {
-      faceCount: faces.length,
+      faceCount: faces.length > 0 ? 1 : 0,
       eyeStatus: 'unknown',
+      expressionBalance: 'unknown',
+      retouchReadiness: faces.length > 0 ? 'conditional' : 'hold',
       detectionMode: faces.length > 0 ? 'native_api' : 'not_detected',
     };
   } catch {
-    return { faceCount: 0, eyeStatus: 'unknown', detectionMode: 'not_detected' };
+    return { faceCount: 0, eyeStatus: 'unknown', expressionBalance: 'unknown', retouchReadiness: 'hold', detectionMode: 'not_detected' };
   }
 }
 
@@ -304,6 +357,8 @@ export async function analyzeImageFile(file: File): Promise<RawPhotoMetrics> {
     ...pixelMetrics,
     faceCount: fallbackFaceSignals.faceCount,
     eyeStatus: fallbackFaceSignals.eyeStatus,
+    expressionBalance: fallbackFaceSignals.expressionBalance,
+    retouchReadiness: fallbackFaceSignals.retouchReadiness,
     faceDetectionMode: fallbackFaceSignals.detectionMode,
     faceSizeRatio: fallbackFaceSignals.faceSizeRatio,
     faceTopMargin: fallbackFaceSignals.faceTopMargin,
@@ -312,5 +367,19 @@ export async function analyzeImageFile(file: File): Promise<RawPhotoMetrics> {
     faceRightMargin: fallbackFaceSignals.faceRightMargin,
     faceTiltDegrees: fallbackFaceSignals.faceTiltDegrees,
     faceShapeTendency: fallbackFaceSignals.faceShapeTendency,
+    faceWidthTendency: fallbackFaceSignals.faceWidthTendency,
+    faceStructureConfidence: fallbackFaceSignals.faceStructureConfidence,
+    upperThirdRatio: fallbackFaceSignals.upperThirdRatio,
+    midThirdRatio: fallbackFaceSignals.midThirdRatio,
+    lowerThirdRatio: fallbackFaceSignals.lowerThirdRatio,
+    eyeGapRatio: fallbackFaceSignals.eyeGapRatio,
+    jawToCheekRatio: fallbackFaceSignals.jawToCheekRatio,
+    leftEyeBlinkScore: fallbackFaceSignals.leftEyeBlinkScore,
+    rightEyeBlinkScore: fallbackFaceSignals.rightEyeBlinkScore,
+    eyeBlinkDiffScore: fallbackFaceSignals.eyeBlinkDiffScore,
+    leftSmileScore: fallbackFaceSignals.leftSmileScore,
+    rightSmileScore: fallbackFaceSignals.rightSmileScore,
+    smileDiffScore: fallbackFaceSignals.smileDiffScore,
+    mouthOpenScore: fallbackFaceSignals.mouthOpenScore,
   };
 }
