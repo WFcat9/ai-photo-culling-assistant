@@ -2013,9 +2013,11 @@ img {
   min-height: 17.8%;
   padding: clamp(8px, 1vw, 13px);
   border-radius: 20px;
-  background: linear-gradient(135deg, rgba(39, 89, 130, 0.34), rgba(16, 48, 78, 0.08));
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(205, 236, 255, 0.12);
+  background: linear-gradient(135deg, rgba(45, 98, 141, 0.78), rgba(23, 63, 96, 0.58));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px) brightness(1.1);
+  -webkit-backdrop-filter: blur(14px) brightness(1.1);
 }
 
 .live-score-ring {
