@@ -1492,7 +1492,7 @@ function App() {
         </div>
         <div className={`reference-right-brightness ${uiSettings.edgeEffectsEnabled ? 'has-edge-effects' : ''}`} aria-hidden="true" />
         <button className="creator-profile" type="button" onClick={() => setIsSettingsOpen(true)} aria-label="打开麦田里的修猫的设置">
-          <span>麦</span>
+          <span className="creator-camera" aria-hidden="true"><Camera size={15} strokeWidth={2.4} /></span>
           <strong>麦田里的修猫</strong>
         </button>
         <button key={scoreAnimationKey} className={`live-score-layer ${uiSettings.animationsEnabled ? 'is-animated' : ''}`} type="button" onClick={replayScoreAnimations} aria-label="本地分析评分趋势，点击重播动画" title="重播评分动画">
