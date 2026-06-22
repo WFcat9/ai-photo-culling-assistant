@@ -2003,21 +2003,21 @@ img {
 .live-score-layer {
   position: absolute;
   z-index: 3;
-  top: 46.7%;
-  right: 3.4%;
+  top: 45.15%;
+  right: 3.05%;
   display: grid;
   grid-template-columns: minmax(95px, 0.72fr) minmax(0, 1.42fr);
   align-items: center;
   gap: clamp(12px, 1.7vw, 22px);
-  width: 36.5%;
-  min-height: 17.8%;
+  width: 37.2%;
+  min-height: 20.4%;
   padding: clamp(8px, 1vw, 13px);
   border-radius: 20px;
-  border: 1px solid rgba(205, 236, 255, 0.12);
-  background: linear-gradient(135deg, rgba(45, 98, 141, 0.78), rgba(23, 63, 96, 0.58));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(14px) brightness(1.1);
-  -webkit-backdrop-filter: blur(14px) brightness(1.1);
+  border: 1px solid rgba(205, 236, 255, 0.3);
+  background:
+    radial-gradient(circle at 86% 10%, rgba(129, 211, 255, 0.24), transparent 42%),
+    linear-gradient(135deg, #2a6591, #183f64);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 12px 26px rgba(3, 20, 38, 0.18);
   color: inherit;
   cursor: pointer;
   font: inherit;
@@ -2149,74 +2149,6 @@ img {
   color: rgba(213, 234, 249, 0.68);
   font-size: clamp(7px, 0.65vw, 10px);
   text-align: center;
-}
-
-.reference-strip-mask {
-  position: absolute;
-  z-index: 1;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 18%;
-  background: linear-gradient(180deg, rgba(3, 18, 31, 0.14), rgba(3, 18, 31, 0.7));
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  pointer-events: none;
-}
-
-.compact-feature-strip {
-  position: absolute;
-  z-index: 3;
-  bottom: 5.2%;
-  left: 50%;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  width: 70%;
-  min-height: 10%;
-  transform: translateX(-50%) scale(0.8);
-  transform-origin: center;
-  border: 1px solid rgba(208, 238, 255, 0.32);
-  border-radius: 18px;
-  background: linear-gradient(105deg, rgba(46, 93, 130, 0.82), rgba(26, 66, 102, 0.7));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 14px 34px rgba(0, 0, 0, 0.22);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-
-.compact-feature-strip > div {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-  padding: 13px 15px;
-}
-
-.compact-feature-strip > div:not(:last-child) {
-  border-right: 1px solid rgba(215, 238, 252, 0.16);
-}
-
-.compact-feature-strip svg {
-  flex: 0 0 auto;
-  color: #bceaff;
-}
-
-.compact-feature-strip span {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.compact-feature-strip strong {
-  color: #eef9ff;
-  font-size: 12px;
-}
-
-.compact-feature-strip small {
-  overflow: hidden;
-  color: rgba(220, 239, 253, 0.72);
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .settings-backdrop {

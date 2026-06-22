@@ -1518,13 +1518,6 @@ function App() {
             </div>
           </div>
         </button>
-        <div className="reference-strip-mask" aria-hidden="true" />
-        <section className="compact-feature-strip" aria-label="核心能力">
-          <div><Aperture aria-hidden="true" size={18} /><span><strong>多维分析</strong><small>构图、光影、表情</small></span></div>
-          <div><ScanFace aria-hidden="true" size={18} /><span><strong>修图建议</strong><small>单人脸型与塑形</small></span></div>
-          <div><Palette aria-hidden="true" size={18} /><span><strong>批量处理</strong><small>调色、水印、导出</small></span></div>
-          <div><CheckCircle2 aria-hidden="true" size={18} /><span><strong>本地隐私</strong><small>历史只保存在设备</small></span></div>
-        </section>
       </section>
 
       {isSettingsOpen ? (
