@@ -753,6 +753,7 @@ function App() {
   const [uiSettings, setUiSettings] = useState<UiSettings>(() => loadUiSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [animatedScore, setAnimatedScore] = useState(0);
+  const [scoreAnimationKey, setScoreAnimationKey] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -880,7 +881,8 @@ function App() {
       return;
     }
 
-    const animationDuration = 760;
+    setAnimatedScore(0);
+    const animationDuration = 1100;
     const startedAt = performance.now();
     let animationFrame = 0;
 
@@ -896,7 +898,13 @@ function App() {
 
     animationFrame = window.requestAnimationFrame(advanceScore);
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [liveScore, uiSettings.animationsEnabled]);
+  }, [liveScore, scoreAnimationKey, uiSettings.animationsEnabled]);
+
+  function replayScoreAnimations() {
+    if (!uiSettings.animationsEnabled) return;
+    setAnimatedScore(0);
+    setScoreAnimationKey((currentKey) => currentKey + 1);
+  }
 
   function openDetailSection(sectionKey: DetailSectionKey) {
     const nextIndex = DETAIL_SECTION_ORDER.indexOf(sectionKey);
@@ -1487,7 +1495,7 @@ function App() {
           <span>麦</span>
           <strong>麦田里的修猫</strong>
         </button>
-        <section className={`live-score-layer ${uiSettings.animationsEnabled ? 'is-animated' : ''}`} aria-label="本地分析评分趋势">
+        <button key={scoreAnimationKey} className={`live-score-layer ${uiSettings.animationsEnabled ? 'is-animated' : ''}`} type="button" onClick={replayScoreAnimations} aria-label="本地分析评分趋势，点击重播动画" title="重播评分动画">
           <div className="live-score-ring" style={{ '--score-angle': `${animatedScore * 3.6}deg` } as CSSProperties}>
             <strong>{animatedScore}</strong>
             <span>综合评分</span>
@@ -1509,7 +1517,7 @@ function App() {
               {visibleTrend.map((point) => <span key={point.day}>{point.day}</span>)}
             </div>
           </div>
-        </section>
+        </button>
         <div className="reference-strip-mask" aria-hidden="true" />
         <section className="compact-feature-strip" aria-label="核心能力">
           <div><Aperture aria-hidden="true" size={18} /><span><strong>多维分析</strong><small>构图、光影、表情</small></span></div>
